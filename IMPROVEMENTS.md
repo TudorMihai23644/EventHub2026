@@ -9,7 +9,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 
 1. [Block late cancellation + fix the capacity race](#idea-1)
 2. [Rate limiting + helmet + Swagger only outside production](#idea-2)
-3. [Delete dead frontend code](#idea-3)
+3. ~~[Delete dead frontend code](#idea-3)~~ (cancelled → 18)
 4. [TypeORM migrations instead of `synchronize`](#idea-4)
 5. [Pagination + `available` filter in SQL + aggregate summary](#idea-5)
 6. [Transactional email (Resend)](#idea-6)
@@ -24,6 +24,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 15. [QR tickets + check-in](#idea-15)
 16. [Google sign-in, Turnstile, Sentry](#idea-16)
 17. [Paid events with Stripe](#idea-17)
+18. [Adopt the "Red Neon 4K" theme](#idea-18)
 
 - [Reference: external APIs vs. in-house](#reference)
 - [Inbox (new ideas)](#inbox)
@@ -36,8 +37,8 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 |---|---|---|---|---|---|
 | [1](#idea-1) | [x] | Block cancelling a registration after the event started + lock when lowering capacity | Fix | S | |
 | [2](#idea-2) | [x] | Rate limiting (`@nestjs/throttler`) + `helmet` + Swagger only outside production | Security | S | |
-| [3](#idea-3) | [ ] | Delete dead frontend code (`components/EventCard.tsx`, `components/Navbar.tsx`, `index.css`) | Cleanup | XS | |
 | [4](#idea-4) | [ ] | TypeORM migrations instead of `synchronize: true` | Production | S | |
+| [3](#idea-3) | ❌ | ~~Delete dead frontend code~~ – cancelled, replaced by [#18](#idea-18) | Cleanup | XS | |
 | [5](#idea-5) | [ ] | Pagination on `GET /events` + `available` filter in SQL + single aggregate query for `summary` | Performance | S–M | |
 | [6](#idea-6) | [ ] | Transactional email (Resend): registration confirmation, event changed/deleted notice | Feature + API | M | |
 | [7](#idea-7) | [ ] | Password reset + email verification | Feature | M | 6 |
@@ -51,6 +52,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 | [15](#idea-15) | [ ] | QR ticket per registration + organizer check-in scanner | Feature | M–L | |
 | [16](#idea-16) | [ ] | Google sign-in (OAuth), Cloudflare Turnstile on register/login, Sentry monitoring | API | S each | |
 | [17](#idea-17) | [ ] | Paid events with Stripe Checkout | Feature + API | L | |
+| [18](#idea-18) | [ ] | Adopt the "Red Neon 4K" theme (`index.css`, `EventCard`, `Navbar`) for the whole app | Design | M | priority to decide |
 
 ---
 
@@ -197,7 +199,7 @@ Three independent hardening changes in the backend. No database change; the fron
 <a id="idea-3"></a>
 ## 3. Delete dead frontend code
 
-**Status:** planned · **Type:** Cleanup · **Effort:** XS
+**Status:** ❌ cancelled 2026-11-05 · replaced by [#18 Adopt the "Red Neon 4K" theme](#idea-18). The files stay: the neon design is planned to become the app's look. The plan below is kept for history.
 
 Remove three frontend files that nothing uses. No backend, API or database change.
 
@@ -397,6 +399,28 @@ Stripe Checkout for paid tickets. Never handle card data yourself.
 
 ---
 
+<a id="idea-18"></a>
+## 18. Adopt the "Red Neon 4K" theme
+
+**Status:** idea · plan not written yet · **Type:** Design · **Effort:** M · **Priority:** to decide · replaces [#3](#idea-3)
+
+Make the unused "Pure Black & Red Neon 4K" design the app's real look, instead of deleting it.
+
+**What already exists** (`frontend/src/index.css`, 434 lines, plus `components/EventCard.tsx` and `components/Navbar.tsx`):
+- colour palette (black/obsidian backgrounds, neon reds), multi-layer glow effects, "cyber grid" background, neon scrollbar;
+- styles for: navbar, buttons (`.btn-neon`, `.btn-neon-outline`), hero banner, event grid and cards (`.neon-card`), forms and inputs (`.neon-input`), panels, alerts.
+
+**Gaps found while checking it (2026-11-05):**
+- **Fonts aren't loaded.** The theme uses Orbitron, Rajdhani and Inter, but `index.html` loads only Manrope and Unbounded, so the browser falls back to a default font.
+- **Not responsive.** `index.css` has no `@media` rules (the current `styles.css` has 6), so it needs mobile layouts.
+- **Missing styles for current pages.** No styles for the event list rows, date tile, occupancy meter, status pills, filters, toasts, event detail page, organizer dashboard or attendee list.
+- **The two components can't be used as-is.** `Navbar.tsx` links to `/my-registrations` and `/admin/events` and checks an `ADMIN` role; none of these exist (real routes: `/inscrierile-mele`, `/organizator`; roles: `PARTICIPANT`, `ORGANIZER`). `EventCard.tsx` has its own `EventItem` type (`date`, `id: string | number`) and works out "full" itself; it must use the real type from `src/types.ts` and the status/flags the API already sends.
+- **Two stylesheets.** Decide whether `index.css` replaces `styles.css` or the two get merged; today only `styles.css` is imported.
+
+[↑ Back to table of contents](#table-of-contents)
+
+---
+
 <a id="reference"></a>
 ## Reference: external APIs vs. in-house
 
@@ -422,4 +446,5 @@ Stripe Checkout for paid tickets. Never handle card data yourself.
 
 <!-- Add new ideas here as: - YYYY-MM-DD – idea – short reason -->
 - 2026-11-05 – Unused-code check (`knip`) in CI, as part of [#13](#idea-13) – would have caught the dead files from [#3](#idea-3) automatically.
+- 2026-11-05 – Add `.gitattributes` (`* text=auto eol=lf`) – this machine has `core.autocrlf=true`, so a fresh checkout turns files into CRLF; `setup-secrets.sh` then fails on Mac/Linux (`sh\r: not found`).
 - 2026-11-05 – Update outdated dependencies that `npm install` warns about (`glob`, `inflight`, `uuid`, pulled in by other packages), as part of [#13](#idea-13).
