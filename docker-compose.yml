@@ -1,0 +1,63 @@
+# Valorile secrete NU sunt în acest fișier. Se citesc din ./secrets/*.txt
+# (create cu setup-secrets.ps1 / setup-secrets.sh, ignorate de Git) și sunt
+# montate în containere ca fișiere în /run/secrets, nu ca variabile de mediu.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:-eventhub}
+      POSTGRES_DB: ${DB_NAME:-eventhub}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    ports:
+      - "127.0.0.1:5432:5432" # accesibil doar de pe acest calculator
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
+  backend:
+    build: ./backend
+    environment:
+      PORT: 3000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-eventhub}
+      DB_NAME: ${DB_NAME:-eventhub}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      # Imaginea rulează cu NODE_ENV=production; local păstrăm documentația /api/docs.
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
+      # Setează doar în spatele unui reverse proxy (ex. 1), ca limitarea cererilor să vadă IP-ul real.
+      TRUST_PROXY: ${TRUST_PROXY:-}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      ORGANIZER_INVITE_CODE_FILE: /run/secrets/organizer_invite_code
+    secrets:
+      - db_password
+      - jwt_secret
+      - organizer_invite_code
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  organizer_invite_code:
+    file: ./secrets/organizer_invite_code.txt
+
+volumes:
+  pgdata:

@@ -1,0 +1,77 @@
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { api } from '../api';
+import { ENDPOINTS } from '../endpoints';
+import { useAuth } from '../auth';
+import { EventItem } from '../types';
+import { DateTile, Loading, errMsg, fmtDate, seatsLabel, useToast } from '../ui';
+
+export default function EventDetailPage() {
+  const { id } = useParams();
+  const { user } = useAuth();
+  const { notify } = useToast();
+  const [ev, setEv] = useState<EventItem | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // API-ul întoarce și starea utilizatorului curent (isRegistered, canRegister, ...),
+  // deci se reîncarcă la autentificare / deconectare.
+  const load = useCallback(async () => {
+    try {
+      setEv(await api<EventItem>(ENDPOINTS.events.one(id as string)));
+      setError('');
+    } catch (err) {
+      setError(errMsg(err));
+    }
+  }, [id, user]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function act(method: 'POST' | 'DELETE') {
+    setBusy(true);
+    try {
+      await api(ENDPOINTS.events.registrations(id as string), { method });
+      notify('ok', method === 'POST' ? 'Te-ai înscris cu succes.' : 'Înscrierea a fost anulată.');
+    } catch (err) {
+      notify('err', errMsg(err));
+    } finally {
+      await load();
+      setBusy(false);
+    }
+  }
+
+  if (error) return <p className="alert err">{error} <Link to="/">Înapoi la evenimente</Link></p>;
+  if (!ev) return <Loading />;
+
+  return (
+    <article className="detail">
+      <Link to="/" className="back">Toate evenimentele</Link>
+      <div className="detail-head">
+        <DateTile iso={ev.startsAt} />
+        <div>
+          <h1>{ev.title}</h1>
+          <p className="muted">{fmtDate(ev.startsAt)}, {ev.location}</p>
+          {ev.organizer && <p className="muted">Organizator: {ev.organizer.name}</p>}
+        </div>
+      </div>
+
+      <p className="desc">{ev.description}</p>
+
+      <div className="panel">
+        <strong>{ev.status === 'PAST' ? 'Eveniment încheiat' : seatsLabel(ev)}</strong>
+        {!user && ev.status !== 'PAST' && (
+          <p>Pentru a te înscrie, <Link to="/login">autentifică-te</Link> sau <Link to="/register">creează un cont</Link>.</p>
+        )}
+        {user?.role === 'ORGANIZER' && !ev.isOwner && ev.status !== 'PAST' && (
+          <p className="muted">Conturile de organizator nu se pot înscrie la evenimente.</p>
+        )}
+        {ev.canRegister && <button className="btn" onClick={() => act('POST')} disabled={busy}>Înscrie-te</button>}
+        {ev.canCancel && <button className="btn ghost" onClick={() => act('DELETE')} disabled={busy}>Anulează înscrierea</button>}
+        {user?.role === 'PARTICIPANT' && ev.status === 'FULL' && !ev.isRegistered && (
+          <button className="btn" disabled>Locuri epuizate</button>
+        )}
+        {ev.canEdit && <Link className="btn" to={`/organizator/${ev.id}/editare`}>Editează evenimentul</Link>}
+      </div>
+    </article>
+  );
+}

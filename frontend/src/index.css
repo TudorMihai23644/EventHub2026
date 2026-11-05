@@ -1,0 +1,434 @@
+:root {
+  /* Paleta Pure Black & Obsidian */
+  --bg-void: #030304;
+  --bg-deep: #08080a;
+  --bg-card: rgba(14, 14, 18, 0.82);
+  --bg-card-hover: rgba(22, 12, 16, 0.92);
+  --bg-glass: rgba(10, 10, 14, 0.75);
+
+  /* Paleta Red Neon 4K */
+  --neon-red: #ff003c;
+  --neon-red-bright: #ff3366;
+  --neon-red-dark: #990024;
+  --neon-crimson: #dc143c;
+  --neon-red-subtle: rgba(255, 0, 60, 0.12);
+  --neon-red-border: rgba(255, 0, 60, 0.35);
+
+  /* Efecte de Glow Multi-Layer */
+  --glow-sm: 0 0 8px rgba(255, 0, 60, 0.45);
+  --glow-md: 0 0 15px rgba(255, 0, 60, 0.55), 0 0 30px rgba(255, 0, 60, 0.25);
+  --glow-lg: 0 0 20px rgba(255, 0, 60, 0.75), 0 0 45px rgba(255, 0, 60, 0.4), 0 0 80px rgba(255, 0, 60, 0.15);
+  --text-glow: 0 0 10px rgba(255, 0, 60, 0.7), 0 0 25px rgba(255, 0, 60, 0.4);
+
+  /* Text */
+  --text-primary: #f8f9fa;
+  --text-secondary: #a0a4b0;
+  --text-muted: #5e6270;
+
+  /* Fonturi */
+  --font-display: 'Orbitron', sans-serif;
+  --font-tech: 'Rajdhani', sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  background-color: var(--bg-void);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Fundal 4K cu grilă cyber și radiație subtilă roșie */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: 
+    radial-gradient(circle at 50% 0%, rgba(255, 0, 60, 0.14) 0%, transparent 55%),
+    radial-gradient(circle at 85% 80%, rgba(153, 0, 36, 0.1) 0%, transparent 45%),
+    linear-gradient(rgba(255, 0, 60, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 0, 60, 0.03) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 48px 48px, 48px 48px;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Scrollbar Neon */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-void);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--neon-red-dark);
+  border-radius: 4px;
+  box-shadow: var(--glow-sm);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--neon-red);
+}
+
+/* Container scalabil până la 4K */
+.container-4k {
+  width: 100%;
+  max-width: 1720px;
+  margin: 0 auto;
+  padding: 0 2rem;
+}
+
+/* Navbar */
+.neon-navbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(5, 5, 8, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--neon-red-border);
+  box-shadow: 0 4px 30px rgba(255, 0, 60, 0.12);
+}
+
+.navbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 80px;
+}
+
+.brand-logo {
+  font-family: var(--font-display);
+  font-size: 1.65rem;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: #fff;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  text-shadow: var(--text-glow);
+}
+
+.brand-logo span {
+  color: var(--neon-red);
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.nav-link {
+  font-family: var(--font-tech);
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: all 0.25s ease;
+  position: relative;
+  padding: 0.4rem 0;
+}
+
+.nav-link:hover,
+.nav-link.active {
+  color: #fff;
+  text-shadow: var(--text-glow);
+}
+
+.nav-link::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 0%;
+  height: 2px;
+  background: var(--neon-red);
+  box-shadow: var(--glow-sm);
+  transition: width 0.3s ease;
+}
+
+.nav-link:hover::after,
+.nav-link.active::after {
+  width: 100%;
+}
+
+/* Butoane Red Neon */
+.btn-neon {
+  font-family: var(--font-tech);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 0.75rem 1.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  text-decoration: none;
+  border: 1px solid var(--neon-red);
+  background: linear-gradient(135deg, rgba(255, 0, 60, 0.9) 0%, rgba(165, 0, 38, 0.95) 100%);
+  color: #fff;
+  box-shadow: var(--glow-sm), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+}
+
+.btn-neon:hover:not(:disabled) {
+  background: var(--neon-red);
+  box-shadow: var(--glow-lg);
+  transform: translateY(-2px);
+}
+
+.btn-neon:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-neon-outline {
+  background: rgba(255, 0, 60, 0.06);
+  color: var(--neon-red-bright);
+  border: 1px solid var(--neon-red-border);
+  box-shadow: none;
+}
+
+.btn-neon-outline:hover:not(:disabled) {
+  background: rgba(255, 0, 60, 0.18);
+  color: #fff;
+  border-color: var(--neon-red);
+  box-shadow: var(--glow-md);
+}
+
+/* Hero Banner */
+.hero-section {
+  padding: 5rem 0 3.5rem;
+  text-align: center;
+  position: relative;
+}
+
+.hero-badge {
+  display: inline-block;
+  font-family: var(--font-tech);
+  font-weight: 700;
+  font-size: 0.9rem;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--neon-red-bright);
+  background: var(--neon-red-subtle);
+  border: 1px solid var(--neon-red-border);
+  padding: 0.4rem 1.2rem;
+  border-radius: 999px;
+  margin-bottom: 1.5rem;
+  box-shadow: var(--glow-sm);
+}
+
+.hero-title {
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 5vw, 4.5rem);
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 1.25rem;
+}
+
+.hero-title .neon-accent {
+  color: var(--neon-red);
+  text-shadow: var(--text-glow);
+}
+
+.hero-subtitle {
+  color: var(--text-secondary);
+  font-size: 1.15rem;
+  max-width: 680px;
+  margin: 0 auto 2.5rem;
+  line-height: 1.6;
+}
+
+/* Grilă Evenimente 4K */
+.events-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 2rem;
+  padding: 2rem 0 5rem;
+}
+
+/* Carduri Evenimente */
+.neon-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 2px solid var(--neon-red-border);
+  border-radius: 12px;
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.neon-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 0, 60, 0.07),
+    transparent
+  );
+  transform: skewX(-20deg);
+  transition: left 0.6s ease;
+  pointer-events: none;
+}
+
+.neon-card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--neon-red);
+  box-shadow: var(--glow-md), 0 16px 40px rgba(0, 0, 0, 0.85);
+  transform: translateY(-6px);
+}
+
+.neon-card:hover::before {
+  left: 150%;
+}
+
+.card-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  font-family: var(--font-tech);
+  font-size: 0.95rem;
+  letter-spacing: 1px;
+}
+
+.badge-status {
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 1.5px;
+  background: rgba(255, 0, 60, 0.15);
+  color: var(--neon-red-bright);
+  border: 1px solid var(--neon-red-border);
+}
+
+.card-title {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 0.75rem;
+  letter-spacing: 0.5px;
+}
+
+.card-description {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+}
+
+.card-info-list {
+  list-style: none;
+  margin-bottom: 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.card-info-list strong {
+  color: var(--neon-red-bright);
+  font-family: var(--font-tech);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* Formulare & Input-uri (Login / Register / Creare Eveniment) */
+.neon-panel {
+  max-width: 480px;
+  margin: 4rem auto;
+  background: var(--bg-card);
+  border: 1px solid var(--neon-red-border);
+  border-radius: 14px;
+  padding: 2.5rem;
+  box-shadow: var(--glow-md), 0 25px 60px rgba(0, 0, 0, 0.95);
+}
+
+.panel-title {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  text-align: center;
+  margin-bottom: 2rem;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  text-shadow: var(--text-glow);
+}
+
+.form-group {
+  margin-bottom: 1.35rem;
+}
+
+.form-label {
+  display: block;
+  font-family: var(--font-tech);
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.neon-input {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  background: rgba(5, 5, 7, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: #fff;
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  transition: all 0.2s ease;
+}
+
+.neon-input:focus {
+  outline: none;
+  border-color: var(--neon-red);
+  box-shadow: var(--glow-sm);
+  background: #080406;
+}
+
+/* Alerte */
+.neon-alert {
+  padding: 0.85rem 1rem;
+  border-radius: 6px;
+  background: rgba(255, 0, 60, 0.14);
+  border-left: 4px solid var(--neon-red);
+  color: #ffb3c6;
+  margin-bottom: 1.25rem;
+  font-size: 0.95rem;
+}
