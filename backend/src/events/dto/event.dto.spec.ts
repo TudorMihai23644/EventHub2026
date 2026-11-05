@@ -1,12 +1,14 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { ListEventsQuery, PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX } from './event.dto';
+import { firstMessage } from '../../common/validation';
 
-// Ca în ValidationPipe: parametrii din URL sunt text, se transformă, apoi se validează.
+// Ca în ValidationPipe: parametrii din URL sunt text, se transformă, apoi se validează;
+// mesajul ales pentru fiecare câmp este cel pe care îl întoarce API-ul.
 async function parse(query: Record<string, string>) {
   const dto = plainToInstance(ListEventsQuery, query);
   const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
-  const fields = Object.fromEntries(errors.map((e) => [e.property, Object.values(e.constraints ?? {})[0]]));
+  const fields = Object.fromEntries(errors.map((e) => [e.property, firstMessage(e.constraints)]));
   return { dto, fields };
 }
 

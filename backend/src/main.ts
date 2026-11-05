@@ -1,29 +1,13 @@
 import 'dotenv/config'; // încarcă backend/.env la rularea locală
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { BadRequestException, ValidationError, ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { API_PREFIX } from './common/routes';
 import { swaggerEnabled, trustProxySetting } from './common/security';
-
-// Erorile de validare returnează și un obiect `fields` ({ câmp: mesaj }),
-// ca frontend-ul să le afișeze lângă fiecare câmp, fără reguli proprii.
-function validationErrors(errors: ValidationError[]) {
-  const fields: Record<string, string> = {};
-  for (const e of errors) {
-    const msg = Object.values(e.constraints ?? {})[0];
-    if (msg) fields[e.property] = msg;
-  }
-  return new BadRequestException({
-    statusCode: 400,
-    error: 'Bad Request',
-    message: Object.values(fields),
-    fields,
-  });
-}
+import { createValidationPipe } from './common/validation';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -40,14 +24,7 @@ async function bootstrap() {
   app.enableCors({
     origin: (process.env.CORS_ORIGIN ?? 'http://localhost:5173').split(','),
   });
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      exceptionFactory: validationErrors,
-    }),
-  );
+  app.useGlobalPipes(createValidationPipe()); // mesaje câmp cu câmp, vezi common/validation.ts
   // Documentația interactivă: http://localhost:3000/api/docs (doar dacă SWAGGER_ENABLED / în afara producției)
   if (docs) {
     const docConfig = new DocumentBuilder().setTitle('EventHub API').setVersion('1.0').addBearerAuth().addSecurityRequirements('bearer').build();

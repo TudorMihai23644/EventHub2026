@@ -1,7 +1,7 @@
 import { Trim } from '../../common/trim';
 import { PartialType } from '@nestjs/mapped-types';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsISO8601, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsDefined, IsIn, IsInt, IsISO8601, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class CreateEventDto {
   @IsString({ message: 'Titlul este obligatoriu.' })
@@ -25,13 +25,16 @@ export class CreateEventDto {
   @Trim()
   location: string;
 
+  @IsDefined({ message: 'Capacitatea este obligatorie.' }) // câmpul gol din formular ajunge ca null
   @IsInt({ message: 'Capacitatea trebuie să fie un număr întreg.' })
   @Min(1, { message: 'Capacitatea minimă este 1 loc.' })
   @Max(100000, { message: 'Capacitatea maximă este 100.000 de locuri.' })
   capacity: number;
 }
 
-export class UpdateEventDto extends PartialType(CreateEventDto) {}
+// La editare, un câmp lipsă rămâne neschimbat, dar `null` este validat (implicit PartialType l-ar lăsa să treacă,
+// iar `capacity: null` ar ajunge în baza de date și ar da eroare 500).
+export class UpdateEventDto extends PartialType(CreateEventDto, { skipNullProperties: false }) {}
 
 export const PAGE_SIZE_DEFAULT = 20;
 export const PAGE_SIZE_MAX = 50;
@@ -43,8 +46,7 @@ export class ListEventsQuery {
   search?: string;
 
   // Parametrii din URL sosesc ca text; @Type îi transformă în numere înainte de validare.
-  // @IsInt stă ultimul (lângă proprietate): class-validator îl raportează primul, deci pentru „abc”
-  // utilizatorul vede „trebuie să fie un număr întreg”, nu „minimul este 1”.
+  // Pentru „abc” se afișează „trebuie să fie un număr întreg”, nu „minimul este 1” (vezi common/validation.ts).
   @IsOptional()
   @Type(() => Number)
   @Min(1, { message: 'Pagina minimă este 1.' })
