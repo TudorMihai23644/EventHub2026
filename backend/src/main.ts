@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { API_PREFIX } from './common/routes';
 import { swaggerEnabled, trustProxySetting } from './common/security';
@@ -21,8 +22,11 @@ async function bootstrap() {
   app.use(helmet({ contentSecurityPolicy: docs ? false : undefined }));
 
   app.setGlobalPrefix(API_PREFIX);
+  // Cookie-ul de refresh (httpOnly) se citește din cereri; CORS permite credențiale doar pentru originile din CORS_ORIGIN.
+  app.use(cookieParser());
   app.enableCors({
     origin: (process.env.CORS_ORIGIN ?? 'http://localhost:5173').split(','),
+    credentials: true,
   });
   app.useGlobalPipes(createValidationPipe()); // mesaje câmp cu câmp, vezi common/validation.ts
   // Documentația interactivă: http://localhost:3000/api/docs (doar dacă SWAGGER_ENABLED / în afara producției)

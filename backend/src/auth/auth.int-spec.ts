@@ -6,6 +6,7 @@ import { AuthService, FORGOT_MESSAGE, INVALID_RESET, INVALID_VERIFY } from './au
 import { TokensService } from './tokens.service';
 import { AuthToken } from './auth-token.entity';
 import { sessionFromToken } from './jwt-auth.guard';
+import { SessionsService } from './sessions.service';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/user.entity';
 import { Notifications } from '../mail/notifications.service';
@@ -40,7 +41,7 @@ describe('Cont: confirmare email, resetare parolă, sesiuni (integrare)', () => 
     outbox = ds.getRepository(OutboxEmail);
     tokens = ds.getRepository(AuthToken);
     jwt = new JwtService({ secret: 'test-secret', signOptions: { expiresIn: 3600 } });
-    auth = new AuthService(new UsersService(users), jwt, ds, new TokensService(), new Notifications(cfg));
+    auth = new AuthService(new UsersService(users), jwt, ds, new TokensService(), new Notifications(cfg), new SessionsService(ds));
   });
   afterAll(() => ds?.destroy());
   beforeEach(async () => {

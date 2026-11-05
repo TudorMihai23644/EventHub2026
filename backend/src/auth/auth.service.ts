@@ -8,6 +8,7 @@ import { UsersService } from '../users/users.service';
 import { User, publicUser } from '../users/user.entity';
 import { Notifications } from '../mail/notifications.service';
 import { TokensService } from './tokens.service';
+import { SessionsService } from './sessions.service';
 import { ForgotPasswordDto, LoginDto, RegisterDto, ResetPasswordDto, VerifyEmailDto } from './dto/auth.dto';
 
 // Același răspuns indiferent dacă există sau nu un cont: formularul nu dezvăluie ce adrese au cont.
@@ -24,9 +25,10 @@ export class AuthService {
     private readonly dataSource: DataSource,
     private readonly tokens: TokensService,
     private readonly notifications: Notifications,
+    private readonly sessions: SessionsService,
   ) {}
 
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto, userAgent?: string) {
     if (dto.role === 'ORGANIZER') this.assertInviteCode(dto.inviteCode);
     const email = normalizeEmail(dto.email);
     if (await this.users.findByEmailWithPassword(email)) {
@@ -41,15 +43,40 @@ export class AuthService {
       await this.notifications.emailVerification(m, u, token);
       return u;
     });
-    return this.session(user);
+    return this.session(user, userAgent);
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, userAgent?: string) {
     const user = await this.users.findByEmailWithPassword(normalizeEmail(dto.email));
     if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
       throw new UnauthorizedException('Email sau parolă incorecte.');
     }
-    return this.session(user);
+    return this.session(user, userAgent);
+  }
+
+  /**
+   * Reînnoirea cu refresh token-ul din cookie. null = sesiune invalidă (controller-ul șterge cookie-ul și răspunde 401).
+   * `refresh` lipsește la 'grace': browserul are deja cookie-ul nou (l-a primit alt tab), deci nu îl înlocuim.
+   */
+  async refreshSession(raw: string | undefined, userAgent?: string) {
+    const r = await this.sessions.refresh(raw, userAgent);
+    if ((r.decision !== 'rotate' && r.decision !== 'grace') || !r.userId) return null;
+    const user = await this.users.findById(r.userId);
+    if (!user) return null;
+    return { accessToken: await this.accessToken(user), user: publicUser(user), refresh: r.refresh };
+  }
+
+  /** Logout: închide sesiunea acestui dispozitiv (funcționează și cu access token-ul expirat). */
+  async logout(raw: string | undefined) {
+    await this.sessions.revokeByRaw(raw);
+  }
+
+  /** Logout pe toate dispozitivele: toate refresh token-urile + toate access token-urile (`tokenVersion`). */
+  async logoutAll(userId: string) {
+    await this.dataSource.transaction(async (m) => {
+      await this.sessions.revokeAllForUser(m, userId);
+      await m.update(User, { id: userId }, { tokenVersion: () => '"tokenVersion" + 1' });
+    });
   }
 
   async me(userId: string) {
@@ -83,6 +110,7 @@ export class AuthService {
       // Linkul a ajuns în căsuța de email, deci adresa este a lui.
       await m.update(User, { id: token.userId, emailVerifiedAt: IsNull() }, { emailVerifiedAt: () => 'now()' });
       await this.tokens.revokeAll(m, token.userId, 'PASSWORD_RESET');
+      await this.sessions.revokeAllForUser(m, token.userId); // nicio sesiune veche nu se mai poate reînnoi
       await this.notifications.passwordChanged(m, await m.findOneByOrFail(User, { id: token.userId }));
     });
     return { message: 'Parola a fost schimbată. Autentifică-te cu noua parolă.' };
@@ -124,10 +152,16 @@ export class AuthService {
     }
   }
 
-  private async session(user: User) {
-    // `tv`: versiunea sesiunilor contului; după o resetare de parolă, token-urile cu `tv` vechi sunt respinse.
-    const accessToken = await this.jwt.signAsync({ sub: user.id, role: user.role, tv: user.tokenVersion ?? 0 });
-    return { accessToken, user: publicUser(user) };
+  /** Autentificare reușită: access token (în corpul răspunsului) + refresh token (controller-ul îl pune în cookie). */
+  private async session(user: User, userAgent?: string) {
+    const refresh = await this.sessions.start(user.id, userAgent);
+    return { accessToken: await this.accessToken(user), user: publicUser(user), refresh };
+  }
+
+  // `tv`: versiunea sesiunilor contului; după resetarea parolei sau logout-all, token-urile cu `tv` vechi sunt respinse.
+  // Durata (15 minute) vine din JwtModule (auth.module.ts).
+  private accessToken(user: Pick<User, 'id' | 'role' | 'tokenVersion'>) {
+    return this.jwt.signAsync({ sub: user.id, role: user.role, tv: user.tokenVersion ?? 0 });
   }
 }
 

@@ -1,34 +1,70 @@
-import { Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { ForgotPasswordDto, LoginDto, RegisterDto, ResetPasswordDto, VerifyEmailDto } from './dto/auth.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { AuthUser, CurrentUser } from './roles';
+import { ClientHeaderGuard, REFRESH_COOKIE, clearRefreshCookie, setRefreshCookie } from './cookies';
+import { IssuedRefresh } from './sessions.service';
 import { ROUTES } from '../common/routes';
 import { ThrottleScope } from '../common/security';
+
+type WithRefresh<T> = T & { refresh?: IssuedRefresh };
 
 @Controller(ROUTES.auth.base)
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
+  /** Refresh token-ul pleacă doar în cookie-ul httpOnly; în JSON rămân access token-ul și utilizatorul. */
+  private respond<T extends object>(res: Response, result: WithRefresh<T>): T {
+    const { refresh, ...body } = result;
+    if (refresh) setRefreshCookie(res, refresh.raw, refresh.expiresAt);
+    return body as T;
+  }
+
   @Post(ROUTES.auth.register)
   @ThrottleScope('register')
-  register(@Body() dto: RegisterDto) {
-    return this.auth.register(dto);
+  async register(@Body() dto: RegisterDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return this.respond(res, await this.auth.register(dto, req.headers['user-agent']));
   }
 
   @Post(ROUTES.auth.login)
   @HttpCode(200)
   @ThrottleScope('login')
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto);
+  async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return this.respond(res, await this.auth.login(dto, req.headers['user-agent']));
   }
 
-  // JWT-ul este stateless: serverul confirmă ieșirea, iar clientul șterge token-ul.
+  /** Access token nou din cookie-ul de refresh (la încărcarea paginii și când access token-ul expiră). */
+  @Post(ROUTES.auth.refresh)
+  @HttpCode(200)
+  @ThrottleScope('refresh')
+  @UseGuards(ClientHeaderGuard)
+  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const result = await this.auth.refreshSession(req.cookies?.[REFRESH_COOKIE], req.headers['user-agent']);
+    if (!result) {
+      clearRefreshCookie(res);
+      throw new UnauthorizedException('Sesiune expirată. Autentifică-te din nou.');
+    }
+    return this.respond(res, result);
+  }
+
+  /** Închide sesiunea acestui dispozitiv. Nu cere access token: poate fi deja expirat. */
   @Post(ROUTES.auth.logout)
   @HttpCode(204)
-  @UseGuards(JwtAuthGuard)
-  logout() {
-    return;
+  @UseGuards(ClientHeaderGuard)
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    await this.auth.logout(req.cookies?.[REFRESH_COOKIE]);
+    clearRefreshCookie(res);
+  }
+
+  /** Închide toate sesiunile contului, de pe toate dispozitivele. */
+  @Post(ROUTES.auth.logoutAll)
+  @HttpCode(204)
+  @UseGuards(ClientHeaderGuard, JwtAuthGuard)
+  async logoutAll(@CurrentUser() user: AuthUser, @Res({ passthrough: true }) res: Response) {
+    await this.auth.logoutAll(user.id);
+    clearRefreshCookie(res);
   }
 
   @Get(ROUTES.auth.me)

@@ -11,7 +11,8 @@ function setup() {
   const dataSource: any = { transaction: (cb: (m: unknown) => unknown) => cb(manager) };
   const tokens: any = { issue: jest.fn(async () => 'raw-token') };
   const notifications: any = { emailVerification: jest.fn() };
-  const service = new AuthService(users, jwt, dataSource, tokens, notifications);
+  const sessions: any = { start: jest.fn(async () => ({ raw: 'refresh-raw', expiresAt: new Date() })) };
+  const service = new AuthService(users, jwt, dataSource, tokens, notifications, sessions);
   // `users.create` = contul salvat (în tranzacție)
   return { service, users: { create: manager.save }, tokens, notifications, jwt };
 }

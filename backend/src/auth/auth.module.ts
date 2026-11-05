@@ -6,6 +6,8 @@ import { AuthService } from './auth.service';
 import { secret } from '../common/secrets';
 import { MailModule } from '../mail/mail.module';
 import { TokensService } from './tokens.service';
+import { SessionsService } from './sessions.service';
+import { accessTokenTtl } from './session-policy';
 
 @Module({
   imports: [
@@ -15,11 +17,12 @@ import { TokensService } from './tokens.service';
       global: true, // JwtService disponibil în guard-urile din toate modulele
       useFactory: () => ({
         secret: secret('JWT_SECRET'), // fără valoare implicită: aplicația nu pornește fără el
-        signOptions: { expiresIn: 7 * 24 * 3600 },
+        // 15 minute; sesiunea continuă prin refresh token-ul din cookie (vezi sessions.service.ts)
+        signOptions: { expiresIn: accessTokenTtl() },
       }),
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, TokensService],
+  providers: [AuthService, TokensService, SessionsService],
 })
 export class AuthModule {}

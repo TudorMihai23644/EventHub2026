@@ -76,9 +76,11 @@ Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt def
 | Metodă | Rută | Acces | Note |
 |---|---|---|---|
 | GET | `/health` | public | verifică API-ul și conexiunea la PostgreSQL (200 / 503) |
-| POST | `/auth/register` | public | 201, `{accessToken, user}`; rolul `ORGANIZER` cere `inviteCode` valid, altfel 403; 429 după 10 conturi/oră de pe același IP |
-| POST | `/auth/login` | public | 200 / 401 / 429 (5/min per cont + IP, 30/min per IP) |
-| POST | `/auth/logout` | autentificat | 204; JWT este stateless, clientul șterge token-ul |
+| POST | `/auth/register` | public | 201, `{accessToken, user}` + cookie `eh_refresh`; rolul `ORGANIZER` cere `inviteCode` valid, altfel 403; 429 după 10 conturi/oră de pe același IP |
+| POST | `/auth/login` | public | 200 `{accessToken, user}` + cookie `eh_refresh` / 401 / 429 (5/min per cont + IP, 30/min per IP) |
+| POST | `/auth/refresh` | cookie `eh_refresh` + antet `X-EventHub-Client: web` | 200 `{accessToken, user}` + cookie nou; 401 (sesiune invalidă, cookie șters); 403 fără antet; 30/min per IP |
+| POST | `/auth/logout` | cookie + antet `X-EventHub-Client` | 204; închide sesiunea acestui dispozitiv și șterge cookie-ul (merge și cu access token-ul expirat) |
+| POST | `/auth/logout-all` | autentificat + antet `X-EventHub-Client` | 204; închide toate sesiunile contului, de pe toate dispozitivele |
 | GET | `/auth/me` | autentificat | `{ id, name, email, role, emailVerified }` |
 | POST | `/auth/password/forgot` | public | `{ email }` → mereu 202 cu același mesaj (nu dezvăluie dacă adresa are cont); 429 după 3/oră per adresă + IP, 20/oră per IP |
 | POST | `/auth/password/reset` | public | `{ token, password }` → 200; 400 `TOKEN_INVALID` (link inexistent, expirat sau folosit); închide toate sesiunile contului |
@@ -101,9 +103,35 @@ Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt def
 vin ca `{ message, fields: { câmp: mesaj } }` și se afișează lângă fiecare câmp. Rutele `GET /events` și `GET /events/:id`
 sunt publice, dar adaptează răspunsul dacă cererea are token.
 
-Logout se face pe client prin ștergerea token-ului JWT.
+## Sesiuni
 
-## Cont: confirmarea emailului, resetarea parolei, sesiuni
+| | Access token | Refresh token |
+|---|---|---|
+| Ce este | JWT | 32 de octeți aleatori |
+| Durată | **15 minute** | **30 de zile**, reînnoit la fiecare folosire; **maximum 90 de zile** de la autentificare |
+| În browser | **doar în memorie** (dispare la reîncărcarea paginii) | cookie **httpOnly** `eh_refresh` (JavaScript nu îl poate citi), `SameSite=Lax`, trimis doar spre `/api/auth` |
+| Pe server | nu se salvează | doar hash-ul SHA-256, în `refresh_tokens` |
+
+- La încărcarea paginii, frontend-ul cere `POST /auth/refresh`: cu un cookie valid primește un access token nou, deci rămâi autentificat.
+  Când access token-ul expiră, `api.ts` îl reînnoiește automat o dată și repetă cererea. Nimic nu se mai păstrează în `localStorage`.
+- **Rotație:** la fiecare reînnoire, refresh token-ul se înlocuiește cu unul nou. Dacă un token deja înlocuit este folosit din nou după 30 de secunde,
+  înseamnă că cineva are o copie: toată acea autentificare este revocată (pe toate dispozitivele unde ajunsese) și apare un avertisment în log.
+  În primele 30 de secunde, token-ul vechi mai primește doar un access token: acoperă două tab-uri care reînnoiesc în același timp.
+  În browser, tab-urile își așteaptă rândul (Web Locks), iar logout într-un tab îi deconectează și pe celelalte (BroadcastChannel).
+- **Logout** închide sesiunea dispozitivului curent; **logout-all** le închide pe toate (și invalidează imediat access token-urile, prin `tokenVersion`).
+  Resetarea parolei închide de asemenea toate sesiunile. Token-urile expirate sau revocate de peste 7 zile se șterg zilnic, la 03:00.
+- **CSRF:** rutele care folosesc cookie-ul cer antetul `X-EventHub-Client: web`. Un formular de pe alt site nu poate trimite antete proprii,
+  iar CORS acceptă credențiale doar de la originile din `CORS_ORIGIN`.
+- **Frontend-ul și API-ul trebuie să fie pe același site** (ex. `eventhub.ro` + `api.eventhub.ro`, sau API-ul sub `eventhub.ro/api`; `localhost:5173` +
+  `localhost:3000` contează ca același site). Pe două domenii fără legătură, cookie-ul ar fi „third-party” și multe browsere (ex. Safari) îl blochează.
+
+| Variabilă | Implicit | Rol |
+|---|---|---|
+| `COOKIE_SECURE` | `true` în producție | cookie doar prin HTTPS. `docker-compose.yml` îl pune pe `false` (local pe http) |
+| `COOKIE_SAMESITE` | `lax` | `strict` / `none` (`none` forțează Secure) |
+| `COOKIE_DOMAIN` | — | ex. `.eventhub.ro`, dacă frontend-ul și API-ul sunt pe subdomenii diferite |
+
+## Cont: confirmarea emailului, resetarea parolei
 
 - **Confirmarea adresei.** La înregistrare se trimite un link de confirmare (valabil 24 de ore). Până la confirmare,
   utilizatorul se poate autentifica și poate vedea evenimentele, dar **nu se poate înscrie** (participant) și **nu poate crea evenimente** (organizator):
@@ -113,8 +141,8 @@ Logout se face pe client prin ștergerea token-ului JWT.
   o cerere nouă anulează linkul anterior. După resetare se trimite emailul „Parola ta a fost schimbată”.
 - **Linkurile sunt sigure în baza de date:** în `auth_tokens` se păstrează doar hash-ul SHA-256 al token-ului, iar conținutul emailurilor
   cu link (`email_outbox.sensitive`) se șterge imediat după trimitere.
-- **Sesiuni.** JWT-ul conține `tv` (versiunea sesiunilor contului). La fiecare cerere autentificată, API-ul citește contul (o interogare pe cheia primară):
-  după o resetare de parolă toate sesiunile vechi primesc 401, la fel token-urile unui cont șters. Rolul și starea emailului vin din baza de date, nu din token.
+- **Access token-ul și contul curent.** JWT-ul conține `tv` (versiunea sesiunilor contului). La fiecare cerere autentificată, API-ul citește contul (o interogare pe cheia primară):
+  după o resetare de parolă sau logout-all, access token-urile vechi primesc 401, la fel cele ale unui cont șters. Rolul și starea emailului vin din baza de date, nu din token.
 - **Local, fără cheie Resend:** linkurile apar în logul API-ului (nivel `debug`, sub `LogMailer`): de acolo se pot copia.
 
 ## Migrări

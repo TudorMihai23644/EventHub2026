@@ -1,11 +1,10 @@
 import { ReactNode, createContext, useContext, useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { api, tokenStore } from './api';
+import { Session, api, hasSession, onSessionChange, refreshSession, setSession } from './api';
 import { ENDPOINTS } from './endpoints';
 import { Role, User } from './types';
 import { Loading } from './ui';
 
-interface Session { accessToken: string; user: User }
 interface AuthCtx {
   user: User | null;
   ready: boolean;
@@ -19,34 +18,54 @@ interface AuthCtx {
 const Ctx = createContext<AuthCtx>(null as unknown as AuthCtx);
 export const useAuth = () => useContext(Ctx);
 
+// Celelalte tab-uri află de autentificare / deconectare (logout într-un tab îl deconectează și pe celălalt).
+const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('eventhub-auth') : null;
+type AuthMessage = 'login' | 'logout';
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (!tokenStore.get()) { setReady(true); return; }
-    api<User>(ENDPOINTS.auth.me)
-      .then(setUser)
-      .catch(() => tokenStore.clear())
-      .finally(() => setReady(true));
+    // reînnoirile automate (access token expirat) pot deconecta utilizatorul dacă sesiunea nu mai e validă
+    onSessionChange((s) => setUser(s?.user ?? null));
+    // La încărcarea paginii: sesiunea vine din cookie-ul httpOnly, nu din localStorage.
+    // (În StrictMode efectul rulează de două ori; refreshSession împarte aceeași cerere, deci se trimite una singură.)
+    refreshSession().catch(() => null).finally(() => setReady(true));
+
+    const onMessage = (e: MessageEvent<AuthMessage>) => {
+      if (e.data === 'logout') { setSession(null); setUser(null); }
+      if (e.data === 'login') refreshSession().catch(() => null); // alt tab s-a autentificat: preluăm sesiunea din cookie
+    };
+    channel?.addEventListener('message', onMessage);
+    return () => channel?.removeEventListener('message', onMessage);
   }, []);
 
-  const start = (s: Session) => { tokenStore.set(s.accessToken); setUser(s.user); return s.user; };
+  const start = (s: Session) => {
+    setSession(s);
+    setUser(s.user);
+    channel?.postMessage('login' satisfies AuthMessage);
+    return s.user;
+  };
 
   const value: AuthCtx = {
     user,
     ready,
-    login: async (email, password) => start(await api<Session>(ENDPOINTS.auth.login, { method: 'POST', body: { email, password } })),
-    register: async (data) => start(await api<Session>(ENDPOINTS.auth.register, { method: 'POST', body: data })),
+    login: async (email, password) =>
+      start(await api<Session>(ENDPOINTS.auth.login, { method: 'POST', body: { email, password }, cookies: true, noRefresh: true })),
+    register: async (data) =>
+      start(await api<Session>(ENDPOINTS.auth.register, { method: 'POST', body: data, cookies: true, noRefresh: true })),
     logout: () => {
-      api(ENDPOINTS.auth.logout, { method: 'POST' }).catch(() => {}); // cererea pornește cu token-ul încă setat
-      tokenStore.clear();
+      // serverul revocă sesiunea și șterge cookie-ul; local uităm imediat access token-ul
+      api(ENDPOINTS.auth.logout, { method: 'POST', cookies: true, noRefresh: true }).catch(() => {});
+      setSession(null);
       setUser(null);
+      channel?.postMessage('logout' satisfies AuthMessage);
     },
     refresh: async () => {
-      if (!tokenStore.get()) return;
+      if (!hasSession()) return;
       try { setUser(await api<User>(ENDPOINTS.auth.me)); }
-      catch { tokenStore.clear(); setUser(null); } // sesiune închisă (ex. parola a fost resetată)
+      catch { setSession(null); setUser(null); } // sesiune închisă (ex. parola a fost resetată)
     },
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

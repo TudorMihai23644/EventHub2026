@@ -6,6 +6,7 @@ export const ROUTES = {
   health: 'health',
   auth: {
     base: 'auth', register: 'register', login: 'login', logout: 'logout', me: 'me',
+    refresh: 'refresh', logoutAll: 'logout-all',
     forgotPassword: 'password/forgot', resetPassword: 'password/reset',
     verifyEmail: 'email/verify', resendVerification: 'email/resend',
   },

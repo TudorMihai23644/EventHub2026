@@ -42,7 +42,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 | [5](#idea-5) | [x] | Pagination on `GET /events` + `available` filter in SQL + single aggregate query for `summary` + safe search | Performance | M | 4 |
 | [6](#idea-6) | [x] | Transactional email (Resend): registration confirmation, event changed/deleted notice | Feature + API | M | |
 | [7](#idea-7) | [x] | Password reset + email verification | Feature | M | 6 |
-| [8](#idea-8) | [ ] | Short access token + refresh token in httpOnly cookie, server-side logout/revocation | Security | M | |
+| [8](#idea-8) | [x] | Short access token + refresh token in httpOnly cookie, server-side logout/revocation | Security | M | |
 | [9](#idea-9) | [ ] | Waitlist with automatic promotion when someone cancels | Feature | M | 1, 6 |
 | [10](#idea-10) | [ ] | 24h reminders (`@nestjs/schedule`) + `.ics` download + "Add to Google Calendar" link | Feature | S–M | 6 |
 | [11](#idea-11) | [ ] | Event fields: `endsAt`, category/tags, cover image (Cloudinary), online/physical + link | Feature + API | M | |
@@ -711,9 +711,115 @@ New `backend/src/auth/auth-token.entity.ts`, `backend/src/auth/tokens.service.ts
 <a id="idea-8"></a>
 ## 8. Refresh tokens + server-side logout
 
-**Status:** idea · plan not written yet
+**Status:** ✅ done 2026-11-05 · 158/158 unit + 51/51 integration tests, 24/24 end-to-end checks (compiled API, real HTTP with a cookie jar), backend and frontend build · **browser check (step 23) still to do** · **Type:** Security · **Effort:** M · **Builds on:** [#7](#idea-7), [#2](#idea-2)
 
-The JWT is valid for 7 days, stored in `localStorage`, and logout does nothing on the server. Use a short-lived access token plus a refresh token in an httpOnly cookie, and revoke the refresh token on logout.
+**Files changed:** backend: new `auth/refresh-token.entity.ts`, `auth/session-policy.ts` (+ spec), `auth/sessions.service.ts` (+ `sessions.int-spec.ts`), `auth/cookies.ts` (cookie helpers + `ClientHeaderGuard`), migration `1793905123736-AddRefreshTokens.ts`; changed `auth/auth.service.ts` (+ spec, int-spec), `auth/auth.controller.ts`, `auth/auth.module.ts`, `main.ts` (cookie-parser, CORS credentials), `common/security.ts`, `common/routes.ts`, `database/data-source.ts`, `package.json` (+ `cookie-parser` 1.4), `.env.example`; `docker-compose.yml` (`COOKIE_SECURE=false` locally). Frontend: `api.ts` (rewritten), `auth.tsx` (rewritten), `endpoints.ts`. `README.md` (new "Sesiuni" section, auth routes).
+
+**Checks:**
+
+| Check | Result |
+|---|---|
+| Unit: refresh decision (rotate / grace / theft / invalid, incl. "replaced then logged out" = invalid not theft), 30-day expiry capped by the 90-day limit, access lifetime, cookie settings per environment (incl. `none` ⇒ Secure), CSRF guard | ✅ 23 new |
+| Integration: only hash stored, 30/90 days; rotation keeps family + 90-day limit; reuse within 30 s → access only; **two simultaneous refreshes → one rotation, nobody logged out**; reuse after 30 s → family revoked; theft doesn't touch other devices; expired / past-limit / invented → rejected; logout keeps other devices; logout-all also kills access tokens; password reset revokes all; cleanup deletes only rows older than 7 days | ✅ 11 new |
+| Does the theft test catch disabled theft detection? | ✅ fails in both the unit and integration suites |
+| End-to-end via HTTP: cookie `HttpOnly; SameSite=Lax; Path=/api/auth`, 30 days, never in JSON; CORS preflight allowed with credentials from the frontend, refused from another origin; no CSRF header → 403; access token expiry (2 s for the test) → 401 → refresh → works; second tab with the just-rotated cookie → 200 without a new cookie; replay after 30 s → 401 + login revoked + warning logged; logout clears the cookie and keeps the phone logged in; logout-all kills phone refresh and access; no live session left | ✅ 24/24 |
+| `migration:check` | ✅ |
+
+**Differences from the plan:**
+- A refresh that fails because the **server is unreachable** doesn't log the user out (only a real 401/403 does).
+- Logging in in one tab makes the other tabs pick up the session too (not only logout).
+- `ACCESS_TOKEN_TTL_SECONDS` env var exists only so tests can use a 2-second access token.
+
+### Problems (checked 2026-11-05)
+
+1. **The login token sits in `localStorage`** (`frontend/src/api.ts`), so any script running on the page can read it. If an XSS bug ever lets someone run JavaScript there (a bad dependency, a future feature that renders HTML), they can copy the token and use it elsewhere **for 7 days**.
+2. **Logout does nothing on the server.** `POST /auth/logout` returns 204 and the client forgets the token, but a copied token keeps working until it expires. Since [#7](#idea-7) the only way to kill it is a password reset.
+3. **No way to end one device's session** without ending all of them.
+
+### How it will work
+
+| | Access token | Refresh token |
+|---|---|---|
+| What | JWT (as today) | 32 random bytes |
+| Lifetime | **15 minutes** | **30 days**, renewed on use; **90 days at most** since login, then log in again |
+| Where (browser) | **only in memory** (a JS variable; gone on reload) | **httpOnly cookie**: JavaScript can't read it at all |
+| Where (server) | not stored | **only its SHA-256 hash**, in a new table `refresh_tokens` |
+| Sent | `Authorization: Bearer` on every API call | only to `/api/auth/*` (cookie `Path`) |
+
+On page load (or when the access token expires) the frontend calls `POST /auth/refresh`; the browser sends the cookie by itself, the API answers with a new access token. A stolen access token is useless after 15 minutes, and the refresh token can't be read by a script at all.
+
+### Part A: refresh tokens on the server
+
+1. Table `refresh_tokens` (migration): `userId`, `tokenHash` (unique), `familyId` (all tokens descended from one login), `expiresAt`, `familyExpiresAt` (login + 90 days), `revokedAt`, `replacedAt`, `createdAt`, `lastUsedAt`, `userAgent` (shortened, for a future "your devices" list).
+2. **Rotation:** every refresh revokes the token it received and issues a new one (same family). A refresh token works once.
+3. **Theft detection:** if a token that was **already rotated** shows up again, someone else has a copy. The API then revokes the **whole family** (that login on every device it reached) → both the thief and the user must log in again.
+4. **Two tabs at once** would trigger exactly that by accident: both send the same cookie, one rotates, the other arrives with the "old" one. So, **within 30 seconds of a rotation**, the old token still gets a new **access** token (no new cookie; the browser already holds the newer one), and only after that window is it treated as theft. The frontend also makes tabs take turns (Part C).
+5. **Routes:**
+   - `POST /auth/login`, `POST /auth/register`: as today, plus the `Set-Cookie` with the refresh token;
+   - `POST /auth/refresh`: cookie → `{ accessToken, user }` + rotated cookie; missing / expired / revoked → 401 and the cookie is cleared;
+   - `POST /auth/logout`: revokes **this** login's family, clears the cookie (works even if the access token already expired);
+   - `POST /auth/logout-all`: revokes every refresh token of the account and bumps `tokenVersion` (so current access tokens die too).
+6. **Password reset** ([#7](#idea-7)) also revokes all refresh tokens of the account.
+7. A daily job (`@nestjs/schedule`, already installed) deletes refresh tokens that expired more than 7 days ago.
+8. The guard keeps its database check from [#7](#idea-7) (deleted account, `tokenVersion`, fresh role). With 15-minute tokens it could be dropped for speed, but then a reset or deletion would take up to 15 minutes to bite; one primary-key query per request is cheap, so it stays.
+
+### Part B: the cookie and cross-site safety
+
+9. Cookie: `eh_refresh`, `HttpOnly`, `SameSite=Lax`, `Path=/api/auth`, `Max-Age` = token lifetime, `Secure` in production. New dependency `cookie-parser`.
+10. Settings: `COOKIE_SECURE` (default: on when `NODE_ENV=production`), `COOKIE_SAMESITE` (default `lax`), `COOKIE_DOMAIN` (optional). `docker-compose.yml` sets `COOKIE_SECURE=false`, because the local Docker setup runs `NODE_ENV=production` over plain `http://localhost`.
+11. CORS: `credentials: true` (origins stay the explicit `CORS_ORIGIN` list; a wildcard is not allowed with credentials anyway).
+12. **CSRF:** the cookie routes (`refresh`, `logout`, `logout-all`) require a header `X-EventHub-Client: web`. A plain HTML form on another site can't add custom headers, and `fetch` with one needs a CORS preflight that only our origins pass. Together with `SameSite=Lax` (the browser doesn't send the cookie on cross-site POSTs), a hostile site can't use the cookie.
+13. **Deployment note:** this works when the frontend and the API are on the **same site** (e.g. `eventhub.ro` + `api.eventhub.ro`, or the API under `eventhub.ro/api`). `localhost:5173` + `localhost:3000` count as the same site. With two unrelated domains the cookie would be a "third-party cookie", which Safari and others block; that would need `SameSite=None; Secure` and still be unreliable. README will say so.
+
+### Part C: frontend
+
+14. `api.ts`: the access token lives in a module variable, **not** `localStorage`. On startup, the old `eventhub_token` key is deleted.
+15. `credentials: 'include'` and the `X-EventHub-Client` header on the auth calls.
+16. **Silent login on page load:** `AuthProvider` calls `POST /auth/refresh` first; logged in if it works, visitor if not. So reloading the page keeps you logged in, as today.
+17. **Automatic refresh:** if any request gets 401, `api()` refreshes **once** and repeats the request; if refreshing fails, the user is logged out. Several requests failing at once share **one** refresh call.
+18. **Tabs take turns:** refreshes are serialized across tabs with the browser's Web Locks API (`navigator.locks`); where that's unavailable the 30-second grace (step 4) covers it.
+19. **Logout in one tab logs out the others** (`BroadcastChannel`), and they stop using their in-memory tokens.
+
+### Part D: tests and docs
+
+20. **Unit:** cookie options per environment; CSRF header check; the rotation/grace/theft decision as a pure function; refresh-token lifetime limits.
+21. **Database-backed:**
+    - login → one hashed row; refresh → old revoked + new issued, same family, `lastUsedAt` set;
+    - reuse **within** 30 s → new access token, no new refresh token, family intact;
+    - reuse **after** 30 s → whole family revoked, every token of it rejected;
+    - expired token, token past the 90-day family limit → 401;
+    - logout → that family revoked, another login (other device) unaffected; logout-all → everything revoked and old access tokens rejected (`tokenVersion`);
+    - password reset → all refresh tokens revoked;
+    - cleanup job deletes only long-expired rows.
+22. **End-to-end via HTTP** (with a cookie jar): `Set-Cookie` attributes (`HttpOnly`, `SameSite=Lax`, `Path=/api/auth`, `Max-Age`); refresh without the CSRF header → 403; CORS preflight from `http://localhost:5173` → `Access-Control-Allow-Credentials: true`, from another origin → refused; access token expires (short lifetime set for the test) → refresh → request works again; logout → refresh with the old cookie → 401; stolen-cookie replay after rotation → family revoked.
+23. **Browser check (manual):** reload keeps you logged in; two tabs stay logged in for a long time without logging each other out; logout in one tab logs out the other; DevTools → Application → `localStorage` has no token, the cookie shows as `HttpOnly`.
+24. `README.md`: new "Sesiuni" section (how it works, lifetimes, same-site requirement, new env vars), updated auth routes. In this file, tick item 8 as `[x]`.
+
+### How it affects the project
+
+| Area | Effect |
+|---|---|
+| **Users** | Nothing visible: staying logged in, reloads and logout behave as now. Logout now really ends the session. Sessions last up to 90 days, then a new login. |
+| **At deployment** | **Everyone is logged out once** (old `localStorage` tokens are dropped; decision 3). |
+| **Security** | A stolen access token works ≤ 15 minutes; the refresh token can't be read by scripts; theft of a refresh token is detected on reuse; logout and logout-all are real. |
+| **API** | New routes `refresh`, `logout-all`; `logout` changes meaning (revokes); login/register also set a cookie. Response bodies unchanged. Swagger still works with a pasted access token. |
+| **CORS / cookies** | `credentials: true`; frontend and API must be on the same site in production. |
+| **Database** | New table `refresh_tokens` (one migration) + daily cleanup. |
+| **Dependencies** | `cookie-parser` (+ types). |
+| **Config** | `COOKIE_SECURE`, `COOKIE_SAMESITE`, `COOKIE_DOMAIN` (all optional). |
+| **Later items** | A "your devices" list (from `userAgent`, `lastUsedAt`) and a "log out everywhere" button fit the profile page from [#12](#idea-12); [#16](#idea-16) Google sign-in reuses the same session issuing. |
+| **Risk** | Medium. Session handling touches every page load and every logged-in request; the multi-tab case is the classic pitfall, which is why it has both a server-side grace and client-side locking, plus tests. |
+
+### Files to change
+
+Backend: new `auth/refresh-token.entity.ts`, `auth/sessions.service.ts` (+ spec, + int-spec), `auth/cookies.ts`, `auth/csrf.guard.ts`, new migration; `auth/auth.service.ts`, `auth/auth.controller.ts`, `auth/auth.module.ts`, `auth/jwt-auth.guard.ts` (unchanged logic, shorter tokens), `main.ts` (cookie-parser, CORS credentials), `common/security.ts` (refresh limit), `database/data-source.ts`, `package.json`, `.env.example`, `docker-compose.yml`. Frontend: `api.ts`, `auth.tsx`, `endpoints.ts`. Docs: `README.md`.
+
+### Decisions (2026-11-05): all four recommendations
+
+1. Access 15 minutes; refresh 30 days renewed on use, at most 90 days per login.
+2. Frontend and API share a site; the limitation is documented.
+3. Everyone is logged out once at deployment.
+4. "Log out everywhere": API route now, button later on the profile page ([#12](#idea-12)).
 
 [↑ Back to table of contents](#table-of-contents)
 
@@ -876,4 +982,5 @@ Make the unused "Pure Black & Red Neon 4K" design the app's real look, instead o
 - 2026-11-05 – Email follow-ups from [#6](#idea-6): (a) cleanup job for old `SENT` rows in `email_outbox` (they stay forever now); (b) a way for organizers/admins to see `FAILED` emails; (c) a daily digest option for organizers of popular events instead of one email per registration; (d) verify a real domain + SPF/DKIM before emailing real participants.
 - 2026-11-05 – `backend/package.json`: add `"engines": { "node": ">=22.12" }` (required by `resend`), and use `npm ci` instead of `npm install` in the Dockerfile for reproducible builds.
 - 2026-11-05 – Account follow-ups from [#7](#idea-7): (a) cleanup of used/expired rows in `auth_tokens`; (b) "change password" while logged in (needs the current password) and "change email" (needs re-verification); (c) a banner update in other open tabs after verifying (today only the tab that opened the link refreshes); (d) register's unique-email race: two simultaneous sign-ups with the same address → the second gets a 500 from the database constraint instead of 409.
+- 2026-11-05 – **Content-Security-Policy for the frontend.** helmet's CSP from [#2](#idea-2) only covers API responses; the React app's `index.html` (served by Vite / a static host) has none. A CSP (`script-src 'self'`, fonts from Google, `connect-src` = the API) is the main defense against XSS, the attack [#8](#idea-8) limits the damage of. Set it in the static host's headers, or a `<meta http-equiv>` as a fallback.
 - 2026-11-05 – Update outdated dependencies that `npm install` warns about (`glob`, `inflight`, `uuid`, pulled in by other packages), as part of [#13](#idea-13).
