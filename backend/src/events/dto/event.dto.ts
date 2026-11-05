@@ -1,7 +1,8 @@
 import { Trim } from '../../common/trim';
 import { PartialType } from '@nestjs/mapped-types';
 import { Type } from 'class-transformer';
-import { IsDefined, IsIn, IsInt, IsISO8601, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsDefined, IsIn, IsInt, IsISO8601, IsOptional, IsString, IsUrl, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { CATEGORY_VALUES, EventCategory, EventFormat, FORMAT_VALUES } from '../categories';
 
 export class CreateEventDto {
   @IsString({ message: 'Titlul este obligatoriu.' })
@@ -19,11 +20,35 @@ export class CreateEventDto {
   @IsISO8601({}, { message: 'Data și ora nu sunt valide.' })
   startsAt: string;
 
+  // Regulile care depind de mai multe câmpuri (locație obligatorie dacă nu e online, link pentru online/hibrid,
+  // sfârșit după început) se verifică în EventsService pe evenimentul complet, nu aici: un PATCH poate trimite
+  // doar `format`, iar restul câmpurilor vin din ce e salvat.
+  @IsOptional()
   @IsString({ message: 'Locația este obligatorie.' })
   @MinLength(2, { message: 'Locația trebuie să aibă cel puțin 2 caractere.' })
   @MaxLength(160, { message: 'Locația poate avea maximum 160 de caractere.' })
   @Trim()
-  location: string;
+  location?: string | null;
+
+  /** Opțional; null = fără oră de sfârșit. */
+  @IsOptional()
+  @IsISO8601({}, { message: 'Ora de sfârșit nu este validă.' })
+  endsAt?: string | null;
+
+  @IsDefined({ message: 'Alege o categorie.' })
+  @IsIn(CATEGORY_VALUES, { message: 'Alege o categorie din listă.' })
+  category: EventCategory;
+
+  @IsOptional()
+  @IsIn(FORMAT_VALUES, { message: 'Formatul trebuie să fie fizic, online sau hibrid.' })
+  format?: EventFormat;
+
+  // doar https: un link „javascript:” sau „http:” ar fi periculos / nesigur pe pagina participanților
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true }, { message: 'Linkul trebuie să fie o adresă care începe cu https://.' })
+  @MaxLength(500, { message: 'Linkul poate avea maximum 500 de caractere.' })
+  @Trim()
+  onlineUrl?: string | null;
 
   @IsDefined({ message: 'Capacitatea este obligatorie.' }) // câmpul gol din formular ajunge ca null
   @IsInt({ message: 'Capacitatea trebuie să fie un număr întreg.' })
@@ -67,4 +92,8 @@ export class ListEventsQuery {
   @IsOptional()
   @IsIn(['true', 'false'])
   available?: 'true' | 'false';
+
+  @IsOptional()
+  @IsIn(CATEGORY_VALUES, { message: 'Categoria nu există.' })
+  category?: EventCategory;
 }

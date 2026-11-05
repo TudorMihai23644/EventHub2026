@@ -17,6 +17,7 @@ export const ENDPOINTS = {
   events: {
     list: (query = '') => `/events${query ? `?${query}` : ''}`,
     create: '/events',
+    categories: '/events/categories',
     one: (id: string) => `/events/${id}`, // GET, PATCH, DELETE
     mine: '/events/mine',
     summary: '/events/mine/summary',

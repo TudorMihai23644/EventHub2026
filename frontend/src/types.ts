@@ -15,14 +15,25 @@ export interface EventItem {
   title: string;
   description: string;
   startsAt: string;
+  /** Opțional; între început și sfârșit `status` este ONGOING. */
+  endsAt: string | null;
   location: string;
+  /** Cum se afișează locul: „Brașov”, „Online”, „Brașov și online”. */
+  place: string;
+  category: string;
+  categoryLabel: string;
+  format: EventFormat;
+  /** Doar pentru participanții înscriși și organizator; altfel null. */
+  onlineUrl: string | null;
+  /** Există un link online (chiar dacă nu îl vezi încă). */
+  hasOnlineLink: boolean;
   capacity: number;
   organizerId: string;
   organizer?: { id: string; name: string };
   registeredCount: number;
   availableSeats: number;
   occupancyPercent: number;
-  status: 'OPEN' | 'FULL' | 'PAST';
+  status: 'OPEN' | 'FULL' | 'ONGOING' | 'PAST';
   isPast: boolean;
   isOwner: boolean;
   isRegistered: boolean;
@@ -60,6 +71,11 @@ export interface WaitlistPerson {
   joinedAt: string;
   user: { id: string; name: string; email: string };
 }
+
+export type EventFormat = 'PHYSICAL' | 'ONLINE' | 'HYBRID';
+export interface Option<T extends string = string> { value: T; label: string }
+/** GET /events/categories */
+export interface EventOptions { categories: Option[]; formats: Option<EventFormat>[] }
 
 // Listele paginate din API (ex. GET /events).
 export interface Paginated<T> {

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { ENDPOINTS } from '../endpoints';
 import { Attendee, EventItem, OrganizerSummary, WaitlistPerson } from '../types';
-import { DateTile, Loading, errMsg, fmtDate, useToast } from '../ui';
+import { DateTile, Loading, errMsg, fmtWhen, useToast } from '../ui';
 
 export default function DashboardPage() {
   const { notify } = useToast();
@@ -76,8 +76,12 @@ export default function DashboardPage() {
           <li key={e.id} className="row static">
             <DateTile iso={e.startsAt} />
             <div className="row-body">
-              <h2><Link to={`/events/${e.id}`}>{e.title}</Link>{e.isPast && <span className="pill full">Încheiat</span>}</h2>
-              <p className="muted">{fmtDate(e.startsAt)}, {e.location}</p>
+              <h2>
+                <Link to={`/events/${e.id}`}>{e.title}</Link>
+                {e.status === 'ONGOING' && <span className="pill">În desfășurare</span>}
+                {e.status === 'PAST' && <span className="pill full">Încheiat</span>}
+              </h2>
+              <p className="muted">{fmtWhen(e.startsAt, e.endsAt)}, {e.place} · {e.categoryLabel}</p>
               <div className="meter" role="img" aria-label={`${e.registeredCount} din ${e.capacity} locuri ocupate`}>
                 <span style={{ width: `${e.occupancyPercent}%` }} />
               </div>

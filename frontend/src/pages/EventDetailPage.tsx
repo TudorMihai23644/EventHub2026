@@ -4,7 +4,7 @@ import { api } from '../api';
 import { ENDPOINTS } from '../endpoints';
 import { useAuth } from '../auth';
 import { EventItem } from '../types';
-import { DateTile, Loading, errMsg, fmtDate, seatsLabel, useToast } from '../ui';
+import { DateTile, Loading, errMsg, fmtWhen, seatsLabel, useToast } from '../ui';
 import { ResendVerificationButton } from './VerifyEmailPage';
 import { API_URL } from '../config';
 
@@ -66,8 +66,9 @@ export default function EventDetailPage() {
       <div className="detail-head">
         <DateTile iso={ev.startsAt} />
         <div>
+          <p className="small tag">{ev.categoryLabel}</p>
           <h1>{ev.title}</h1>
-          <p className="muted">{fmtDate(ev.startsAt)}, {ev.location}</p>
+          <p className="muted">{fmtWhen(ev.startsAt, ev.endsAt)}, {ev.place}</p>
           {ev.organizer && <p className="muted">Organizator: {ev.organizer.name}</p>}
         </div>
       </div>
@@ -75,7 +76,13 @@ export default function EventDetailPage() {
       <p className="desc">{ev.description}</p>
 
       <div className="panel">
-        <strong>{ev.status === 'PAST' ? 'Eveniment încheiat' : seatsLabel(ev)}</strong>
+        <strong>{ev.status === 'PAST' ? 'Eveniment încheiat' : ev.status === 'ONGOING' ? 'În desfășurare' : seatsLabel(ev)}</strong>
+        {ev.onlineUrl && (
+          <p>Link pentru participare online: <a href={ev.onlineUrl} target="_blank" rel="noopener noreferrer">{ev.onlineUrl}</a></p>
+        )}
+        {!ev.onlineUrl && ev.hasOnlineLink && ev.status !== 'PAST' && (
+          <p className="muted">Online · linkul se afișează după înscriere.</p>
+        )}
         {!user && ev.status !== 'PAST' && (
           <p>Pentru a te înscrie, <Link to="/login">autentifică-te</Link> sau <Link to="/register">creează un cont</Link>.</p>
         )}

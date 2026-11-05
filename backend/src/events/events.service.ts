@@ -10,6 +10,7 @@ import { escapeLike } from '../common/escape-like';
 import { paginated } from '../common/paginated';
 import { Notifications, info } from '../mail/notifications.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
+import { MAX_DURATION_DAYS } from './categories';
 
 @Injectable()
 export class EventsService {
@@ -55,6 +56,7 @@ export class EventsService {
     if (q.available === 'true') {
       qb.andWhere('e.capacity > (SELECT COUNT(*) FROM registrations r WHERE r."eventId" = e.id)');
     }
+    if (q.category) qb.andWhere('e.category = :category', { category: q.category });
     // `id` ca al doilea criteriu: evenimentele cu aceeași oră nu sar între pagini.
     const dir = q.sort === 'desc' ? 'DESC' : 'ASC';
     qb.orderBy('e.startsAt', dir).addOrderBy('e.id', dir).skip((page - 1) * limit).take(limit);
@@ -99,9 +101,46 @@ export class EventsService {
   }
 
   async create(user: AuthUser, dto: CreateEventDto) {
-    const startsAt = this.parseFutureDate(dto.startsAt);
-    const saved = await this.repo.save(this.repo.create({ ...dto, startsAt, organizerId: user.id }));
+    const event = this.repo.create({
+      title: dto.title,
+      description: dto.description,
+      capacity: dto.capacity,
+      startsAt: this.parseFutureDate(dto.startsAt),
+      endsAt: dto.endsAt ? new Date(dto.endsAt) : null,
+      category: dto.category,
+      format: dto.format ?? 'PHYSICAL',
+      location: dto.location ?? '',
+      onlineUrl: dto.onlineUrl ?? null,
+      organizerId: user.id,
+    });
+    this.applyEventRules(event, { locationGiven: dto.location != null });
+    const saved = await this.repo.save(event);
     return this.findOne(saved.id, user);
+  }
+
+  /**
+   * Regulile pe evenimentul complet (după ce PATCH-ul a fost aplicat peste ce e salvat):
+   *  - ONLINE: link obligatoriu; locația devine „Online”;
+   *  - PHYSICAL / HYBRID: locație obligatorie (nu „Online” rămas de la un format anterior); PHYSICAL nu păstrează link;
+   *  - HYBRID: și link obligatoriu;
+   *  - sfârșitul, dacă există: după început, cel mult MAX_DURATION_DAYS zile.
+   */
+  private applyEventRules(e: Event, opts: { locationGiven: boolean; wasOnline?: boolean }) {
+    e.format ??= 'PHYSICAL'; // coloana are implicit PHYSICAL; aici doar apărare
+    if (e.format === 'ONLINE') {
+      if (!e.onlineUrl) throw this.bad('Adaugă linkul pentru evenimentul online.', 'onlineUrl');
+      e.location = 'Online';
+    } else {
+      const leftoverOnline = opts.wasOnline && !opts.locationGiven; // „Online” rămas de la formatul vechi
+      if (!e.location || e.location.trim().length < 2 || leftoverOnline) throw this.bad('Locația este obligatorie.', 'location');
+      if (e.format === 'PHYSICAL') e.onlineUrl = null;
+      else if (!e.onlineUrl) throw this.bad('Adaugă linkul pentru partea online a evenimentului.', 'onlineUrl');
+    }
+    if (e.endsAt) {
+      const ms = e.endsAt.getTime() - e.startsAt.getTime();
+      if (ms <= 0) throw this.bad('Ora de sfârșit trebuie să fie după ora de început.', 'endsAt');
+      if (ms > MAX_DURATION_DAYS * 86_400_000) throw this.bad(`Un eveniment poate dura cel mult ${MAX_DURATION_DAYS} zile.`, 'endsAt');
+    }
   }
 
   // Tranzacție + același lock ca la înscriere: o înscriere simultană fie este
@@ -114,6 +153,8 @@ export class EventsService {
       );
       const before = info(event); // pentru emailul „s-a schimbat evenimentul”
       const oldCapacity = event.capacity;
+      const oldStart = event.startsAt;
+      const wasOnline = event.format === 'ONLINE';
       if (dto.startsAt !== undefined) {
         const next = new Date(dto.startsAt);
         if (next.getTime() !== event.startsAt.getTime()) {
@@ -122,6 +163,15 @@ export class EventsService {
           await m.update(Registration, { eventId: id }, { reminderSentAt: null });
         }
       }
+      if (dto.endsAt !== undefined) {
+        event.endsAt = dto.endsAt ? new Date(dto.endsAt) : null; // null = fără oră de sfârșit
+      } else if (event.endsAt && event.startsAt.getTime() !== oldStart.getTime()) {
+        // a mutat doar începutul: sfârșitul se mută la fel, durata rămâne
+        event.endsAt = new Date(event.endsAt.getTime() + (event.startsAt.getTime() - oldStart.getTime()));
+      }
+      if (dto.category !== undefined) event.category = dto.category;
+      if (dto.format !== undefined) event.format = dto.format;
+      if (dto.onlineUrl !== undefined) event.onlineUrl = dto.onlineUrl;
       if (dto.capacity !== undefined) {
         const taken = await m.count(Registration, { where: { eventId: id } });
         if (dto.capacity < taken) {
@@ -131,7 +181,8 @@ export class EventsService {
       }
       if (dto.title !== undefined) event.title = dto.title;
       if (dto.description !== undefined) event.description = dto.description;
-      if (dto.location !== undefined) event.location = dto.location;
+      if (dto.location !== undefined) event.location = dto.location ?? '';
+      this.applyEventRules(event, { locationGiven: dto.location != null, wasOnline });
       const capacityUp = dto.capacity !== undefined && dto.capacity > oldCapacity;
       await m.save(event);
       // Locurile noi merg la lista de așteptare. Întâi promovarea: cei înscriși acum primesc apoi emailul de

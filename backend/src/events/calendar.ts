@@ -1,16 +1,24 @@
 import { createEvent } from 'ics';
+import { placeLabel } from './categories';
 
 // „Adaugă în calendar”: fișier .ics (Apple, Outlook, telefoane, import în Google) și link Google Calendar.
 
-/** Evenimentele nu au încă oră de sfârșit (vine în ideea 11): în calendar durează 2 ore. */
+/** Evenimentele fără oră de sfârșit durează în calendar 2 ore. */
 export const DEFAULT_DURATION_HOURS = 2;
+
+/** Sfârșitul folosit în calendar: `endsAt` dacă există, altfel început + 2 ore. */
+export const calendarEnd = (e: Pick<CalendarEvent, 'startsAt' | 'endsAt'>) =>
+  e.endsAt ? new Date(e.endsAt) : new Date(new Date(e.startsAt).getTime() + DEFAULT_DURATION_HOURS * 3_600_000);
 
 export interface CalendarEvent {
   id: string;
   title: string;
   description?: string;
   location: string;
+  format?: string | null;
   startsAt: Date;
+  /** Fără oră de sfârșit: DEFAULT_DURATION_HOURS. */
+  endsAt?: Date | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -42,12 +50,14 @@ export function eventIcs(e: CalendarEvent, cfg: CalendarCfg): string {
     productId: 'eventhub/ics',
     title: e.title,
     description: [e.description?.trim(), url].filter(Boolean).join('\n\n'),
-    location: e.location,
+    location: placeLabel(e), // linkul online nu intră aici: fișierul .ics e public
     url,
     start: new Date(e.startsAt).getTime(),
     startInputType: 'utc',
     startOutputType: 'utc',
-    duration: { hours: DEFAULT_DURATION_HOURS },
+    end: calendarEnd(e).getTime(),
+    endInputType: 'utc',
+    endOutputType: 'utc',
   });
   if (error || !value) throw error ?? new Error('Fișierul de calendar nu a putut fi creat.');
   return refoldIcs(value);
@@ -88,13 +98,13 @@ const googleDate = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.
 
 export function googleCalendarUrl(e: CalendarEvent, cfg: CalendarCfg): string {
   const start = new Date(e.startsAt);
-  const end = new Date(start.getTime() + DEFAULT_DURATION_HOURS * 3_600_000);
+  const end = calendarEnd(e);
   const params = new URLSearchParams({
     action: 'TEMPLATE',
     text: e.title,
     dates: `${googleDate(start)}/${googleDate(end)}`,
     details: eventPageUrl(cfg, e.id),
-    location: e.location,
+    location: placeLabel(e),
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }

@@ -144,3 +144,7 @@ h2 .pill { vertical-align: middle; }
   .two { grid-template-columns: 1fr; }
   .form { padding: 1.4rem; }
 }
+
+/* categoria evenimentului */
+.tag { display: inline-block; margin: .35rem 0 0; color: var(--red-text); font-weight: 700; letter-spacing: .02em; }
+.detail-head .tag { margin: 0 0 .35rem; }

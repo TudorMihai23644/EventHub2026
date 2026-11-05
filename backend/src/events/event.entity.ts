@@ -2,6 +2,7 @@ import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMa
 import { User } from '../users/user.entity';
 import { Registration } from '../registrations/registration.entity';
 import { WaitlistEntry } from '../waitlist/waitlist-entry.entity';
+import type { EventCategory, EventFormat } from './categories';
 
 @Entity('events')
 export class Event {
@@ -20,6 +21,20 @@ export class Event {
 
   @Column({ type: 'varchar', length: 160 })
   location: string;
+
+  /** Ora de sfârșit (opțională). „Trecut” rămâne „a început”; între început și sfârșit: „În desfășurare”. */
+  @Column({ type: 'timestamptz', nullable: true })
+  endsAt: Date | null;
+
+  @Column({ type: 'varchar', length: 20, default: 'ALTELE' })
+  category: EventCategory;
+
+  @Column({ type: 'varchar', length: 10, default: 'PHYSICAL' })
+  format: EventFormat;
+
+  /** Linkul pentru online/hibrid. Văzut doar de participanții înscriși și de organizator (vezi event-view.ts). */
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  onlineUrl: string | null;
 
   @Column({ type: 'int' })
   capacity: number;

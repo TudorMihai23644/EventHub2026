@@ -1046,9 +1046,126 @@ Backend: new `reminders/reminders.service.ts` (job + selection rule, + spec + in
 <a id="idea-11"></a>
 ## 11. Event fields: `endsAt`, category, cover image, online events
 
-**Status:** idea · plan not written yet
+**Status:** Part 1 ✅ done 2026-11-05 (217/217 unit + 82/82 integration tests, 15/15 end-to-end checks) · Part 2 (cover image) in progress · **Type:** Feature + API · **Effort:** M–L (two parts, two commits) · **Builds on:** [#4](#idea-4), [#5](#idea-5), [#10](#idea-10)
 
-Add `endsAt`, category/tags, a cover image (Cloudinary / S3 / R2), and online/physical with a link. Revisit what "past" means once `endsAt` exists.
+**Part 1 results:**
+
+| Check | Result |
+|---|---|
+| Unit: link hidden from visitors, unregistered participants, waiting people, other organizers (and `JSON` contains no trace of it); shown to registered + owner; `ONGOING` vs `PAST`; category label and place from the API; `.ics`/Google use `endsAt`, `LOCATION: Online`, no link; date ranges (same day / multi-day, Bucharest); link in confirmation / reminder / promotion, not in waitlist / cancellation / deletion emails; changed link: registered get it, waiting get "s-a schimbat"; DTO: category required and from the list, `http:` / `javascript:` / no-protocol / incomplete links rejected, unknown format, invalid end time | ✅ 23 new |
+| Does the privacy test catch a leaking link? | ✅ with the link returned to everyone: 4 unit tests + the integration test fail |
+| Integration: per-format rules on create; online → physical requires a real place (not the leftover "Online"); online without a stored link → required; end after start and ≤ 14 days; moving only the start keeps the duration; `null` clears the end; category filter with pagination and totals; link only for the registered participant, also in their confirmation, not in the organizer's email; changed link emailed to the registered | ✅ 11 new |
+| End-to-end via HTTP: categories endpoint; missing / `javascript:` link → 400; visitor, unregistered participant and public list never see the link, registered and owner do; `?category=` (and unknown → 400); `.ics` real `DTEND`; confirmation email with "18:00–19:30" and the link; organizer email without it; duration kept on move; `ONGOING` | ✅ 15/15 |
+| `migration:check` | ✅ |
+
+**Part 1 differences from the plan:** the event view also returns `categoryLabel`, `place` ("Brașov" / "Online" / "Brașov și online") and `hasOnlineLink`, so the frontend shows them without its own rules. Cross-field rules live in the service (checked on the merged event), field formats in the DTO.
+
+### Problems (checked 2026-11-05)
+
+1. **No end time.** An event has only `startsAt`. People can't tell if it's a 1-hour talk or a weekend festival, and the calendar entries from [#10](#idea-10) assume 2 hours.
+2. **No categories.** With many events, the list can only be searched by text; there's no "show me workshops".
+3. **Online events don't fit.** `location` is required free text, so organizers type "Online" or paste a meeting link where **anyone** can see it, including people who didn't register (which makes the capacity pointless).
+4. **No images.** Every event looks the same in the list; nothing catches the eye.
+
+Because the cover image needs file uploads, image processing and (optionally) an outside service, it gets its own part and its own commit (decision 1).
+
+---
+
+### Part 1: new event fields
+
+#### 1A. End time
+
+1. `events.endsAt` (nullable). In the form: "Se termină" (date + time), **optional**.
+2. Validation: after `startsAt`, at most 14 days later (`400` with a field message otherwise). Changing `startsAt` without `endsAt` moves the end by the same amount, so the duration stays.
+3. Shown on the event page and in emails as "marți, 1 decembrie, 19:00–21:30" (same day) or "1 decembrie, 19:00 – 3 decembrie, 18:00".
+4. Calendar ([#10](#idea-10)): `.ics` and Google use `endsAt`; the 2-hour default stays only for events without one.
+5. **What "past" means stays the same** (decision 2): registration, cancellation, waitlist and "upcoming" keep using the **start** (7 places in the code rely on it, all tested). An event that has started but not ended shows a new status **"În desfășurare"** (in progress) on its page, but can't be joined.
+
+#### 1B. Category
+
+6. `events.category`: one of a fixed list (decision 3): `CONCERT` (Concert), `CONFERINTA` (Conferință), `ATELIER` (Atelier / Workshop), `SPORT`, `TEATRU_FILM` (Teatru și film), `EXPOZITIE` (Expoziție), `COMUNITATE` (Comunitate), `ALTELE` (Altele). Required for new events; existing events get `ALTELE` in the migration.
+7. One source of truth for the list and its Romanian labels: `GET /events/categories` returns `[{ value, label }]`, so the frontend never hard-codes it.
+8. `GET /events?category=ATELIER` filter (in SQL, with the other filters from [#5](#idea-5); counts and pagination stay correct). Frontend: a "Categorie" select next to search and sort, and a small label on each event.
+
+#### 1C. Physical / online / hybrid
+
+9. `events.format`: `PHYSICAL` (default, all existing events), `ONLINE`, `HYBRID`, plus `events.onlineUrl` (nullable).
+10. Rules (in the DTO, with field messages):
+    - `PHYSICAL`: `location` required, no `onlineUrl`;
+    - `ONLINE`: `onlineUrl` required, `location` not needed (stored as "Online");
+    - `HYBRID`: both required.
+    - `onlineUrl` must be `https://` and at most 500 characters (no `javascript:` or other schemes).
+11. **Who sees the link** (decision 4): only **registered participants and the organizer**. The event view, list, `.ics` and Google link never include it for anyone else; they show "Online · linkul se afișează după înscriere" (the link appears after registering).
+12. Registered people get the link where they need it: the confirmation, "ai primit un loc" ([#9](#idea-9)) and reminder ([#10](#idea-10)) emails, and the event page. If the organizer changes the link, the "event changed" email includes the new one.
+
+#### 1D. Tests for part 1
+
+13. **Unit:** DTO rules per format (incl. `javascript:`/`http:` rejected), `endsAt` limits, date range formatting (same day / multi-day, Bucharest time), `.ics`/Google use `endsAt`, the online link hidden from visitors / other participants / waiting people and shown to registered people and the owner, "În desfășurare".
+14. **Database-backed:** category filter with pagination and counts; existing events after the migration (`PHYSICAL`, `ALTELE`, no `endsAt`); moving `startsAt` keeps the duration; the link appears in exactly the right emails.
+15. **End-to-end via HTTP:** create an online event → visitor and an unregistered participant don't get `onlineUrl`, a registered one does; `?category=` works; `.ics` has the real `DTEND`.
+
+---
+
+### Part 2: cover image
+
+#### 2A. Upload and processing
+
+16. `POST /events/:id/cover` (owner, `multipart/form-data`, one file) and `DELETE /events/:id/cover`.
+17. Checks **on the server**, not just in the browser:
+    - at most **5 MB** (rejected before it's fully read, so a huge upload can't fill memory);
+    - type decided from the file's **content** (magic bytes), not its name or the browser's claim: only JPEG, PNG, WebP. Anything else, including SVG (which can contain scripts), → `400`;
+    - at most 40 megapixels (a tiny file can still decode into a huge image).
+18. Processing with [`sharp`](https://sharp.pixelplumbing.com/) (has prebuilt binaries for the Alpine Docker image):
+    - auto-rotate from the camera orientation, then **strip all metadata** (EXIF can contain the GPS location of the phone that took the photo);
+    - two WebP sizes: 1600 px wide (event page) and 640 px wide (list), cropped to 16:9.
+19. Storage behind one interface, `ImageStorage`, with two implementations (same pattern as `LogMailer`/`ResendMailer` in [#6](#idea-6)):
+    - **local disk** (default, no account needed): files in a Docker volume `uploads`, served by the API at `/api/uploads/…` with long cache headers;
+    - **Cloudinary** (when `CLOUDINARY_URL` is set): the processed files are uploaded there and served from its CDN.
+    Decision 5 picks the default; the other stays available by configuration.
+20. `events.coverImage` (nullable): the stored keys/URLs of both sizes. Replacing or deleting a cover deletes the old files; deleting the event deletes its cover.
+21. The event list and page get `cover: { small, large } | null`; the frontend shows the small one in the list and the large one on the event page, with `alt` text = the title and fixed aspect ratio (no layout jump while loading).
+22. Form: "Imagine de copertă" (file input with preview, "Elimină imaginea"); uploaded after the event is saved (create) or immediately (edit).
+
+#### 2B. Tests for part 2
+
+23. **Unit:** type detection from bytes (a PNG renamed `.jpg` is accepted as PNG; a text file named `.png` → 400; SVG → 400); size and megapixel limits; metadata really gone (a test JPEG with GPS EXIF → output has none); outputs are WebP 1600/640 wide, 16:9.
+24. **Database-backed + disk:** upload → files exist, `coverImage` set; replace → old files deleted; delete event → files deleted; non-owner → 403.
+25. **End-to-end via HTTP:** multipart upload, then `GET /api/uploads/…` serves `image/webp` with cache headers; a 6 MB file → 413/400 without the API reading it all.
+26. Cloudinary path: unit-tested against a fake Cloudinary endpoint (as with Resend); a real upload needs your account.
+
+#### 2C. Docs
+
+27. `README.md`: new fields and rules, categories, online links, image limits, `uploads` volume / `CLOUDINARY_URL`. In this file, tick item 11 as `[x]` after both parts.
+
+---
+
+### How it affects the project
+
+| Area | Effect |
+|---|---|
+| **Organizers** | Can set an end time, a category, online/hybrid with a private link, and a cover image. |
+| **Participants** | Know how long events last, can filter by category, get the online link only after registering, see images. |
+| **API** | Event responses gain `endsAt`, `category`, `format`, `onlineUrl` (only for registered/owner), `cover`; `status` can be `ONGOING`. New routes: `GET /events/categories`, `POST/DELETE /events/:id/cover`, `GET /uploads/…`. `?category=` filter. Existing fields unchanged. |
+| **Database** | One migration per part: `endsAt`, `category` (existing → `ALTELE`), `format` (existing → `PHYSICAL`), `onlineUrl`; then `coverImage`. |
+| **Dependencies** | Part 2: `sharp`, `multer` (Nest's upload handling), `file-type` (magic bytes); `cloudinary` only if chosen. |
+| **Docker** | Part 2 with local storage: a new volume `uploads` in `docker-compose.yml`. |
+| **Free tiers** | Cloudinary free: 25 credits/month (1 credit = 1,000 transformations or 1 GB storage or 1 GB bandwidth). Since images are resized once on our side, most usage is bandwidth. |
+| **Later items** | [#14](#idea-14) maps use `location` only for `PHYSICAL`/`HYBRID`; [#18](#idea-18) neon theme styles the new card images; [#12](#idea-12) analytics can group by category. |
+| **Risk** | Part 1: low–medium (validation rules, link privacy). Part 2: medium (file uploads are a classic attack surface: type, size, metadata, path handling all get explicit tests). |
+
+### Files to change
+
+Part 1, backend: `events/event.entity.ts`, `events/dto/event.dto.ts`, `events/categories.ts` (new), `events/event-view.ts`, `events/events.service.ts`, `events/events.controller.ts`, `events/calendar.ts`, `mail/templates.ts`, `mail/notifications.service.ts`, migration, specs. Part 1, frontend: `types.ts`, `endpoints.ts`, `pages/EventFormPage.tsx`, `pages/EventsPage.tsx`, `pages/EventDetailPage.tsx`, `ui.tsx`. Part 2: new `images/` module (storage interface, local + Cloudinary, processing), `events/events.controller.ts`, `events/events.service.ts`, migration, `main.ts` (static `/uploads`), `docker-compose.yml`, `.env.example`, frontend form/list/page. `README.md`.
+
+### Decisions (2026-11-05): all five recommendations
+
+1. Two parts, two commits: fields first, then images.
+2. "Past" stays "has started"; started-but-not-ended shows "În desfășurare".
+3. The fixed category list above.
+4. Online link visible only to registered participants and the organizer.
+5. Image storage: local disk by default, Cloudinary when `CLOUDINARY_URL` is set.
+
+Sources: [Cloudinary pricing](https://cloudinary.com/pricing), [Cloudinary billing and plans](https://cloudinary.com/documentation/billing_and_plans), [Cloudinary free plan FAQ](https://cloudinary.com/documentation/developer_onboarding_faq_free_plan).
 
 [↑ Back to table of contents](#table-of-contents)
 

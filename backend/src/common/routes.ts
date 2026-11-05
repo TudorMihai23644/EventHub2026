@@ -14,6 +14,7 @@ export const ROUTES = {
     base: 'events',
     mine: 'mine',
     summary: 'mine/summary',
+    categories: 'categories',
     one: ':id',
     registrations: ':id/registrations',
     waitlist: ':id/waitlist',

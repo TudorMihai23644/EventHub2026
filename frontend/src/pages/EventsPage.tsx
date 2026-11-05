@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { ENDPOINTS } from '../endpoints';
 import { EventItem, Paginated } from '../types';
-import { DateTile, Loading, errMsg, seatsLabel } from '../ui';
+import { DateTile, Loading, errMsg, seatsLabel, useEventOptions } from '../ui';
 
 const PAGE_SIZE = 20;
 type PageInfo = Pick<Paginated<EventItem>, 'total' | 'page' | 'totalPages'>;
@@ -12,6 +12,8 @@ export default function EventsPage() {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<'asc' | 'desc'>('asc');
   const [available, setAvailable] = useState(false);
+  const [category, setCategory] = useState('');
+  const options = useEventOptions();
   const [events, setEvents] = useState<EventItem[] | null>(null);
   const [info, setInfo] = useState<PageInfo | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -23,6 +25,7 @@ export default function EventsPage() {
     const qs = new URLSearchParams({ sort, page: String(page), limit: String(PAGE_SIZE) });
     if (search.trim()) qs.set('search', search.trim());
     if (available) qs.set('available', 'true');
+    if (category) qs.set('category', category);
     return api<Paginated<EventItem>>(ENDPOINTS.events.list(qs.toString()));
   };
 
@@ -41,7 +44,7 @@ export default function EventsPage() {
       }
     }, 250);
     return () => clearTimeout(t);
-  }, [search, sort, available]);
+  }, [search, sort, available, category]);
 
   async function loadMore() {
     if (!info) return;
@@ -73,6 +76,13 @@ export default function EventsPage() {
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ex. conferință, Brașov" maxLength={100} />
         </label>
         <label>
+          Categorie
+          <select value={category} onChange={(e) => setCategory(e.target.value)}>
+            <option value="">Toate</option>
+            {options?.categories.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+          </select>
+        </label>
+        <label>
           Sortare după dată
           <select value={sort} onChange={(e) => setSort(e.target.value as 'asc' | 'desc')}>
             <option value="asc">Cele mai apropiate întâi</option>
@@ -98,8 +108,9 @@ export default function EventsPage() {
               <div className="row-body">
                 <h2>{e.title}</h2>
                 <p className="muted">
-                  {new Date(e.startsAt).toLocaleTimeString('ro-RO', { timeStyle: 'short' })}, {e.location}
+                  {new Date(e.startsAt).toLocaleTimeString('ro-RO', { timeStyle: 'short' })}, {e.place}
                 </p>
+                <p className="small tag">{e.categoryLabel}</p>
               </div>
               <span className={`pill ${e.status === 'FULL' ? 'full' : ''}`}>{seatsLabel(e)}</span>
             </Link>

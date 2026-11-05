@@ -4,6 +4,7 @@ import {
 import type { Response } from 'express';
 import { MAIL_CONFIG, MailConfig } from '../mail/mail.config';
 import { calendarLinks, eventIcs, icsFilename } from './calendar';
+import { EVENT_CATEGORIES, EVENT_FORMATS } from './categories';
 import { EventsService } from './events.service';
 import { CreateEventDto, ListEventsQuery, UpdateEventDto } from './dto/event.dto';
 import { JwtAuthGuard, OptionalJwtGuard } from '../auth/jwt-auth.guard';
@@ -21,7 +22,13 @@ export class EventsController {
     return this.events.findUpcoming(query, viewer);
   }
 
-  // rutele fixe ('mine', 'mine/summary') se declară înainte de ':id'
+  // categoriile și formatele, cu etichetele în română (frontend-ul nu le scrie de mână)
+  @Get(ROUTES.events.categories)
+  categories() {
+    return { categories: EVENT_CATEGORIES, formats: EVENT_FORMATS };
+  }
+
+  // rutele fixe ('categories', 'mine', 'mine/summary') se declară înainte de ':id'
   @Get(ROUTES.events.mine)
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ORGANIZER')

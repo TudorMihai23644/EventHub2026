@@ -1,5 +1,6 @@
 import { MailConfig } from './mail.config';
 import { googleCalendarUrl, icsPath } from '../events/calendar';
+import { placeLabel } from '../events/categories';
 
 // Conținutul emailurilor: funcții pure, fără bază de date, ușor de testat.
 // Tot ce scrie un utilizator (titlu, locație, nume) trece prin escapeHtml.
@@ -15,6 +16,10 @@ export interface EventInfo {
   title: string;
   startsAt: Date;
   location: string;
+  endsAt?: Date | null;
+  format?: string | null;
+  /** Doar pentru emailurile către participanții înscriși (vezi `withLink`). */
+  onlineUrl?: string | null;
 }
 
 type Cfg = Pick<MailConfig, 'appUrl' | 'timeZone' | 'apiUrl'>;
@@ -85,9 +90,23 @@ ${links}
   return { subject: oneLine(subject), html, text };
 }
 
-const eventFacts = (cfg: Cfg, e: EventInfo): [string, string][] => [
-  ['Când', formatDate(e.startsAt, cfg.timeZone)],
-  ['Unde', e.location],
+const timeOnly = (d: Date, timeZone: string) => new Intl.DateTimeFormat('ro-RO', { timeStyle: 'short', timeZone }).format(d);
+
+/** „marți, 1 decembrie 2026 la 19:00–21:30” (aceeași zi) sau „… la 19:00 – miercuri, 2 decembrie 2026 la 18:00”. */
+export function formatWhen(e: Pick<EventInfo, 'startsAt' | 'endsAt'>, timeZone: string): string {
+  const start = formatDate(e.startsAt, timeZone);
+  if (!e.endsAt) return start;
+  const end = new Date(e.endsAt);
+  return dayIn(e.startsAt, timeZone) === dayIn(end, timeZone)
+    ? `${start}–${timeOnly(end, timeZone)}`
+    : `${start} – ${formatDate(end, timeZone)}`;
+}
+
+/** `withLink`: doar în emailurile către cei înscriși apare și linkul online (cei care așteaptă nu îl primesc). */
+const eventFacts = (cfg: Cfg, e: EventInfo, opts: { withLink?: boolean } = {}): [string, string][] => [
+  ['Când', formatWhen(e, cfg.timeZone)],
+  ['Unde', placeLabel(e)],
+  ...(opts.withLink && e.onlineUrl ? [['Link online', e.onlineUrl] as [string, string]] : []),
 ];
 
 /** „Adaugă în calendar”: Google + fișier .ics (doar dacă știm adresa publică a API-ului). */
@@ -112,7 +131,7 @@ export function registrationConfirmed(cfg: Cfg, d: { name: string; event: EventI
   return render(cfg, `Te-ai înscris la „${d.event.title}”`, {
     heading: `Te-ai înscris la „${d.event.title}”`,
     lines: [`Bună, ${d.name}! Înscrierea ta a fost confirmată.`],
-    facts: eventFacts(cfg, d.event),
+    facts: eventFacts(cfg, d.event, { withLink: true }),
     button: { label: 'Vezi evenimentul', url: eventUrl(cfg, d.event.id) },
     links: calendarLinks(cfg, d.event),
   });
@@ -127,7 +146,7 @@ export function eventReminder(cfg: Cfg, d: { name: string; event: EventInfo; has
   return render(cfg, `${when}: „${d.event.title}”`, {
     heading: `${when}: „${d.event.title}”`,
     lines: [`Bună, ${d.name}! Îți amintim de evenimentul la care ești înscris.`, cancelHint],
-    facts: eventFacts(cfg, d.event),
+    facts: eventFacts(cfg, d.event, { withLink: true }),
     button: { label: 'Vezi evenimentul', url: eventUrl(cfg, d.event.id) },
     links: calendarLinks(cfg, d.event),
   });
@@ -146,10 +165,12 @@ export function registrationCancelled(cfg: Cfg, d: { name: string; event: EventI
 export function eventChanges(cfg: Cfg, before: EventInfo, after: EventInfo): [string, string][] {
   const changes: [string, string][] = [];
   if (before.title !== after.title) changes.push(['Titlu', `${before.title} → ${after.title}`]);
-  if (before.startsAt.getTime() !== after.startsAt.getTime()) {
-    changes.push(['Când', `${formatDate(before.startsAt, cfg.timeZone)} → ${formatDate(after.startsAt, cfg.timeZone)}`]);
-  }
-  if (before.location !== after.location) changes.push(['Unde', `${before.location} → ${after.location}`]);
+  const [whenBefore, whenAfter] = [formatWhen(before, cfg.timeZone), formatWhen(after, cfg.timeZone)];
+  if (whenBefore !== whenAfter) changes.push(['Când', `${whenBefore} → ${whenAfter}`]);
+  const [placeBefore, placeAfter] = [placeLabel(before), placeLabel(after)];
+  if (placeBefore !== placeAfter) changes.push(['Unde', `${placeBefore} → ${placeAfter}`]);
+  // linkul în sine nu apare aici (emailul merge și la cei de pe lista de așteptare); îl adaugă eventUpdated pentru înscriși
+  if ((before.onlineUrl ?? null) !== (after.onlineUrl ?? null) && after.onlineUrl) changes.push(['Link online', 's-a schimbat']);
   return changes;
 }
 
@@ -161,7 +182,11 @@ export function eventUpdated(cfg: Cfg, d: { name: string; before: EventInfo; aft
   return render(cfg, `S-a schimbat evenimentul „${d.after.title}”`, {
     heading: `Modificări la „${d.after.title}”`,
     lines: [`Bună, ${d.name}! ${intro}`],
-    facts: eventChanges(cfg, d.before, d.after),
+    facts: [
+      ...eventChanges(cfg, d.before, d.after),
+      // linkul nou, doar pentru cei înscriși
+      ...(!d.waiting && d.after.onlineUrl && d.after.onlineUrl !== d.before.onlineUrl ? [['Link nou', d.after.onlineUrl] as [string, string]] : []),
+    ],
     button: { label: 'Vezi evenimentul', url: eventUrl(cfg, d.after.id) },
   });
 }
@@ -173,7 +198,7 @@ export function eventCancelled(cfg: Cfg, d: { name: string; event: EventInfo; wa
   return render(cfg, `Evenimentul „${d.event.title}” a fost anulat`, {
     heading: `„${d.event.title}” a fost anulat`,
     lines: [`Bună, ${d.name}! ${what}`],
-    facts: [['Era programat', formatDate(d.event.startsAt, cfg.timeZone)], ['Unde', d.event.location]],
+    facts: [['Era programat', formatWhen(d.event, cfg.timeZone)], ['Unde', placeLabel(d.event)]],
     button: { label: 'Vezi alte evenimente', url: `${cfg.appUrl}/` },
   });
 }
@@ -199,7 +224,7 @@ export function waitlistPromoted(cfg: Cfg, d: { name: string; event: EventInfo }
       `Bună, ${d.name}! S-a eliberat un loc la „${d.event.title}”, iar tu erai primul pe lista de așteptare: acum ești înscris.`,
       'Dacă nu mai poți veni, anulează înscrierea din pagina evenimentului, ca locul să ajungă la următoarea persoană.',
     ],
-    facts: eventFacts(cfg, d.event),
+    facts: eventFacts(cfg, d.event, { withLink: true }),
     button: { label: 'Vezi evenimentul', url: eventUrl(cfg, d.event.id) },
     links: calendarLinks(cfg, d.event),
   });

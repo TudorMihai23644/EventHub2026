@@ -127,9 +127,14 @@ export class Notifications {
   }
 }
 
-export const info = (e: Pick<Event, 'id' | 'title' | 'startsAt' | 'location'>): EventInfo => ({
+export const info = (
+  e: Pick<Event, 'id' | 'title' | 'startsAt' | 'location'> & Partial<Pick<Event, 'endsAt' | 'format' | 'onlineUrl'>>,
+): EventInfo => ({
   id: e.id,
   title: e.title,
   startsAt: new Date(e.startsAt),
   location: e.location,
+  endsAt: e.endsAt ? new Date(e.endsAt) : null,
+  format: e.format ?? 'PHYSICAL',
+  onlineUrl: e.onlineUrl ?? null,
 });

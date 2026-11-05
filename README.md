@@ -86,7 +86,8 @@ Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt def
 | POST | `/auth/password/reset` | public | `{ token, password }` → 200; 400 `TOKEN_INVALID` (link inexistent, expirat sau folosit); închide toate sesiunile contului |
 | POST | `/auth/email/verify` | public | `{ token }` → 200; 400 `TOKEN_INVALID` |
 | POST | `/auth/email/resend` | autentificat | 202 cu un link nou (cel vechi se anulează); 400 dacă adresa e deja confirmată; 5/oră per IP |
-| GET | `/events?search=&sort=asc\|desc&available=true&page=1&limit=20` | public | doar evenimente viitoare; răspuns paginat `{ items, total, page, limit, totalPages }`; `limit` maxim 50, `search` maxim 100 de caractere (`%` și `_` se caută literal); 400 pentru valori invalide |
+| GET | `/events/categories` | public | `{ categories, formats }` cu etichetele în română |
+| GET | `/events?search=&sort=asc\|desc&available=true&category=&page=1&limit=20` | public | doar evenimente viitoare; răspuns paginat `{ items, total, page, limit, totalPages }`; `limit` maxim 50, `search` maxim 100 de caractere (`%` și `_` se caută literal); 400 pentru valori invalide |
 | GET | `/events/:id/registrations` | organizator proprietar | lista participanților înscriși |
 | GET | `/events/:id` | public | include `registeredCount`, `availableSeats` și `calendar: { google, icsPath }` |
 | GET | `/events/:id/calendar.ics` | public | fișier iCalendar (`text/calendar`), pentru Apple Calendar, Outlook, telefoane |
@@ -118,7 +119,19 @@ sunt publice, dar adaptează răspunsul dacă cererea are token.
   lista de așteptare. Dacă organizatorul mută data, memento-ul se trimite din nou, pentru noua dată.
 - **Adaugă în calendar:** pe pagina evenimentului și în emailurile de confirmare, „ai primit un loc” și memento: link Google Calendar și fișier
   `.ics` (`GET /events/:id/calendar.ics`). Orele sunt în UTC; fiecare calendar le arată în fusul orar al utilizatorului. UID-ul este fix, deci
-  un import după o modificare înlocuiește intrarea. Evenimentele nu au încă oră de sfârșit: în calendar durează **2 ore**.
+  un import după o modificare înlocuiește intrarea. Se folosește ora de sfârșit; fără ea, în calendar evenimentul durează **2 ore**.
+
+## Detaliile unui eveniment
+
+- **Ora de sfârșit** (opțională): după început, cel mult 14 zile. Dacă organizatorul mută doar începutul, sfârșitul se mută la fel (durata rămâne).
+  „Trecut” înseamnă în continuare „a început” (înscrierea, anularea, lista de așteptare se închid la început); între început și sfârșit
+  evenimentul apare „În desfășurare” (`status: ONGOING`).
+- **Categorie** (obligatorie): Concert, Conferință, Atelier / Workshop, Sport, Teatru și film, Expoziție, Comunitate, Altele
+  (`backend/src/events/categories.ts`, servite la `GET /events/categories`). Filtrul `?category=` merge cu paginarea și celelalte filtre.
+  Evenimentele create înainte au categoria „Altele”.
+- **Format:** fizic (locație obligatorie), online (link obligatoriu, locul afișat „Online”) sau hibrid (amândouă). Linkul trebuie să fie `https://`.
+  **Linkul îl văd doar participanții înscriși și organizatorul** (pagina evenimentului, emailurile de confirmare, „ai primit un loc”, memento,
+  „s-a schimbat linkul”). Lista publică, `.ics`, linkul Google și cei de pe lista de așteptare nu îl primesc (`hasOnlineLink` spune doar că există).
 - Emailurile conțin linkuri, nu atașamente (endpointul batch Resend folosit de coadă nu acceptă atașamente).
 
 ## Lista de așteptare
