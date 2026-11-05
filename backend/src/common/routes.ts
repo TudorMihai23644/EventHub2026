@@ -19,6 +19,7 @@ export const ROUTES = {
     registrations: ':id/registrations',
     waitlist: ':id/waitlist',
     calendar: ':id/calendar.ics',
+    cover: ':id/cover',
   },
   registrations: { base: 'registrations', mine: 'me' },
   waitlist: { base: 'waitlist', mine: 'me' },

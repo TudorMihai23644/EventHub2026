@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api } from '../api';
+import { api, assetUrl } from '../api';
 import { ENDPOINTS } from '../endpoints';
 import { useAuth } from '../auth';
 import { EventItem } from '../types';
@@ -63,6 +63,7 @@ export default function EventDetailPage() {
   return (
     <article className="detail">
       <Link to="/" className="back">Toate evenimentele</Link>
+      {ev.cover && <img className="detail-cover" src={assetUrl(ev.cover.large)} alt={ev.title} width={1600} height={900} />}
       <div className="detail-head">
         <DateTile iso={ev.startsAt} />
         <div>

@@ -3,6 +3,7 @@ import { User } from '../users/user.entity';
 import { Registration } from '../registrations/registration.entity';
 import { WaitlistEntry } from '../waitlist/waitlist-entry.entity';
 import type { EventCategory, EventFormat } from './categories';
+import type { CoverImage } from '../images/cover.service';
 
 @Entity('events')
 export class Event {
@@ -35,6 +36,10 @@ export class Event {
   /** Linkul pentru online/hibrid. Văzut doar de participanții înscriși și de organizator (vezi event-view.ts). */
   @Column({ type: 'varchar', length: 500, nullable: true })
   onlineUrl: string | null;
+
+  /** Imaginea de copertă: cheile și adresele celor două variante WebP (vezi images/cover.service.ts). */
+  @Column({ type: 'jsonb', nullable: true })
+  coverImage: CoverImage | null;
 
   @Column({ type: 'int' })
   capacity: number;

@@ -45,7 +45,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 | [8](#idea-8) | [x] | Short access token + refresh token in httpOnly cookie, server-side logout/revocation | Security | M | |
 | [9](#idea-9) | [x] | Waitlist with automatic promotion when someone cancels | Feature | M | 1, 6 |
 | [10](#idea-10) | [x] | 24h reminders (`@nestjs/schedule`) + `.ics` download + "Add to Google Calendar" link | Feature | S–M | 6 |
-| [11](#idea-11) | [ ] | Event fields: `endsAt`, category/tags, cover image (Cloudinary), online/physical + link | Feature + API | M | |
+| [11](#idea-11) | [x] | Event fields: `endsAt`, category/tags, cover image (Cloudinary), online/physical + link | Feature + API | M | |
 | [12](#idea-12) | [ ] | Organizer tools: CSV export of attendees, analytics (registrations over time, no-show rate) | Feature | S–M | |
 | [13](#idea-13) | [ ] | CI (lint + tests), ESLint/Prettier, frontend tests, frontend in `docker-compose` | Tooling | M | |
 | [14](#idea-14) | [ ] | Location autocomplete + map (Mapbox / Google Places, or free Nominatim + Leaflet) | Feature + API | M | |
@@ -1046,7 +1046,7 @@ Backend: new `reminders/reminders.service.ts` (job + selection rule, + spec + in
 <a id="idea-11"></a>
 ## 11. Event fields: `endsAt`, category, cover image, online events
 
-**Status:** Part 1 ✅ done 2026-11-05 (217/217 unit + 82/82 integration tests, 15/15 end-to-end checks) · Part 2 (cover image) in progress · **Type:** Feature + API · **Effort:** M–L (two parts, two commits) · **Builds on:** [#4](#idea-4), [#5](#idea-5), [#10](#idea-10)
+**Status:** ✅ done 2026-11-05 · Part 1 (fields) committed `642cb8b`; Part 2 (cover image): 240/240 unit + 89/89 integration tests, 23/23 end-to-end checks, Docker image processes images · **browser check of the form, list and event page still to do** · **Type:** Feature + API · **Effort:** M–L (two parts, two commits) · **Builds on:** [#4](#idea-4), [#5](#idea-5), [#10](#idea-10)
 
 **Part 1 results:**
 
@@ -1057,6 +1057,24 @@ Backend: new `reminders/reminders.service.ts` (job + selection rule, + spec + in
 | Integration: per-format rules on create; online → physical requires a real place (not the leftover "Online"); online without a stored link → required; end after start and ≤ 14 days; moving only the start keeps the duration; `null` clears the end; category filter with pagination and totals; link only for the registered participant, also in their confirmation, not in the organizer's email; changed link emailed to the registered | ✅ 11 new |
 | End-to-end via HTTP: categories endpoint; missing / `javascript:` link → 400; visitor, unregistered participant and public list never see the link, registered and owner do; `?category=` (and unknown → 400); `.ics` real `DTEND`; confirmation email with "18:00–19:30" and the link; organizer email without it; duration kept on move; `ONGOING` | ✅ 15/15 |
 | `migration:check` | ✅ |
+
+**Part 2 results:**
+
+| Check | Result |
+|---|---|
+| Unit: type from bytes (JPEG / PNG / WebP yes; SVG with scripts, GIF, HTML, text, empty no); output WebP 1600×900 + 640×360; **EXIF with GPS + camera + author removed** (also XMP, ICC); camera orientation applied then dropped; truncated JPEG rejected; 48 MP image in a small file rejected with a clear message; local storage: generated names only, no overwrite, `../` and Windows paths refused on delete; Cloudinary: URL parsing, signature formula, signed upload/destroy against a fake server, the secret never sent | ✅ 23 new |
+| Does the metadata test catch kept metadata? | ✅ with `.keepMetadata()` it fails, showing the EXIF bytes |
+| Integration (disk + Postgres): 2 files written, cover on the event, storage keys never in API responses; replace deletes old files; remove; deleting the event returns the cover for deletion; other organizer → 403 and nothing written; rejected file → nothing written; **two simultaneous uploads → exactly one cover, no orphaned files** | ✅ 7 new |
+| End-to-end via HTTP: 401 / 403; real phone-like JPEG with GPS → served WebP 1600×900 without EXIF; `image/webp`, `max-age=31536000, immutable`, `Cross-Origin-Resource-Policy: cross-origin`, `nosniff`; cover in details and list, no keys; SVG / fake PNG → 400; 6 MB → 413 "cel mult 5 MB"; no file / wrong field / two files → 400 in Romanian; nothing extra on disk after rejections; path traversal → 404; replace / remove / delete event clean up files | ✅ 23/23 |
+| Docker image (Node 24.22, sharp 0.35.5, libvips 8.18.7): processes an image inside the container, output has no EXIF; no `uploads/` baked in | ✅ |
+
+**Part 2 differences from the plan:**
+- **No `file-type` dependency:** recent versions are ESM-only (awkward in this CommonJS backend). The file signature is checked for the 3 allowed types by hand, then `sharp` must decode the file as that same type.
+- **No Cloudinary SDK:** two signed HTTP requests (upload, destroy), tested against a fake server.
+- **`CLOUDINARY_URL` is a secret** (it contains the API secret), so it's a Docker secret (`secrets/cloudinary_url.txt`, may be empty) like the others; the setup scripts create it. Run `setup-secrets` again to get the new file.
+- **helmet's `Cross-Origin-Resource-Policy: same-origin`** would have blocked the frontend (another port/subdomain) from showing the images; `/api/uploads` sends `cross-origin` (the images are public).
+- `uploads/` added to `backend/.gitignore` and `.dockerignore`.
+- Upload errors from multer (English) are translated by a filter on that route only.
 
 **Part 1 differences from the plan:** the event view also returns `categoryLabel`, `place` ("Brașov" / "Online" / "Brașov și online") and `hasOnlineLink`, so the frontend shows them without its own rules. Cross-field rules live in the service (checked on the merged event), field formats in the DTO.
 

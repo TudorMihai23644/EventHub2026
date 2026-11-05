@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ApiError, api } from '../api';
+import { ApiError, api, assetUrl } from '../api';
 import { ENDPOINTS } from '../endpoints';
 import { EventFormat, EventItem } from '../types';
 import { FieldError, Loading, errMsg, formError, toLocalInput, useEventOptions, useToast } from '../ui';
@@ -25,15 +25,29 @@ export default function EventFormPage() {
   const [fields, setFields] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [needsVerify, setNeedsVerify] = useState(false); // organizator cu email neconfirmat
+  // imaginea de copertă: cea salvată, fișierul ales acum (cu previzualizare) și „elimină”
+  const [savedCover, setSavedCover] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [removeCover, setRemoveCover] = useState(false);
+  useEffect(() => {
+    if (!file) { setPreview(null); return; }
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
 
   useEffect(() => {
     if (!id) return;
     api<EventItem>(ENDPOINTS.events.one(id))
-      .then((e) => setF({
-        title: e.title, description: e.description, startsAt: toLocalInput(e.startsAt), endsAt: e.endsAt ? toLocalInput(e.endsAt) : '',
-        capacity: String(e.capacity), category: e.category, format: e.format,
-        location: e.format === 'ONLINE' ? '' : e.location, onlineUrl: e.onlineUrl ?? '',
-      }))
+      .then((e) => {
+        setF({
+          title: e.title, description: e.description, startsAt: toLocalInput(e.startsAt), endsAt: e.endsAt ? toLocalInput(e.endsAt) : '',
+          capacity: String(e.capacity), category: e.category, format: e.format,
+          location: e.format === 'ONLINE' ? '' : e.location, onlineUrl: e.onlineUrl ?? '',
+        });
+        setSavedCover(e.cover ? assetUrl(e.cover.small) : null);
+      })
       .catch((e) => setError(errMsg(e)))
       .finally(() => setLoading(false));
   }, [id]);
@@ -60,7 +74,22 @@ export default function EventFormPage() {
         ...(physical ? { location: f.location } : {}),
         ...(online ? { onlineUrl: f.onlineUrl.trim() || null } : {}),
       };
-      await api(editing ? ENDPOINTS.events.one(id as string) : ENDPOINTS.events.create, { method: editing ? 'PATCH' : 'POST', body });
+      const saved = await api<EventItem>(editing ? ENDPOINTS.events.one(id as string) : ENDPOINTS.events.create, { method: editing ? 'PATCH' : 'POST', body });
+      // imaginea, după ce evenimentul există (la creare abia acum avem id-ul)
+      try {
+        if (file) {
+          const form = new FormData();
+          form.append('file', file);
+          await api(ENDPOINTS.events.cover(saved.id), { method: 'POST', body: form });
+        } else if (removeCover) {
+          await api(ENDPOINTS.events.cover(saved.id), { method: 'DELETE' });
+        }
+      } catch (err) {
+        // evenimentul e salvat; doar imaginea nu: rămânem în formularul de editare, cu mesajul API-ului
+        notify('err', `Evenimentul a fost salvat, dar imaginea nu: ${errMsg(err)}`);
+        nav(`/organizator/${saved.id}/editare`, { replace: true });
+        return;
+      }
       notify('ok', editing ? 'Modificările au fost salvate.' : 'Evenimentul a fost creat.');
       nav('/organizator');
     } catch (err) {
@@ -113,6 +142,27 @@ export default function EventFormPage() {
           <FieldError error={fields.onlineUrl} />
         </label>
       )}
+      <div className="cover-field">
+        <span className="cover-label">Imagine de copertă (opțional)</span>
+        {(preview || (savedCover && !removeCover)) && (
+          <img className="cover-preview" src={preview ?? savedCover!} alt="Previzualizarea imaginii de copertă" />
+        )}
+        <label className="btn ghost file-btn">
+          {preview || (savedCover && !removeCover) ? 'Alege altă imagine' : 'Alege o imagine'}
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(e) => { setFile(e.target.files?.[0] ?? null); setRemoveCover(false); }}
+          />
+        </label>
+        {(file || (savedCover && !removeCover)) && (
+          <button type="button" className="link" onClick={() => { setFile(null); setRemoveCover(Boolean(savedCover)); }}>
+            Elimină imaginea
+          </button>
+        )}
+        <span className="muted small">JPEG, PNG sau WebP, cel mult 5 MB. Se decupează la 16:9; datele din fișier (ex. locația GPS) se elimină.</span>
+        <FieldError error={fields.cover} />
+      </div>
       <div className="actions">
         <button className="btn" disabled={busy}>{editing ? 'Salvează modificările' : 'Creează evenimentul'}</button>
         <Link className="btn ghost" to="/organizator">Renunță</Link>

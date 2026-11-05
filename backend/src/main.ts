@@ -9,6 +9,7 @@ import { AppModule } from './app.module';
 import { API_PREFIX } from './common/routes';
 import { swaggerEnabled, trustProxySetting } from './common/security';
 import { createValidationPipe } from './common/validation';
+import { uploadsDir } from './images/images.module';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -20,6 +21,18 @@ async function bootstrap() {
 
   // Antete de securitate. CSP este oprit doar cât timp Swagger UI este activ (are scripturi inline).
   app.use(helmet({ contentSecurityPolicy: docs ? false : undefined }));
+
+  // Imaginile de copertă din stocarea locală, la /api/uploads/. Numele sunt unice (uuid), deci rămân în cache un an.
+  // helmet pune implicit Cross-Origin-Resource-Policy: same-origin, care ar bloca <img> pe frontend (alt port / subdomeniu);
+  // imaginile sunt publice, deci aici permitem orice origine.
+  app.useStaticAssets(uploadsDir(), {
+    prefix: `/${API_PREFIX}/uploads/`,
+    index: false,
+    dotfiles: 'deny',
+    maxAge: '365d',
+    immutable: true,
+    setHeaders: (res) => res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin'),
+  });
 
   app.setGlobalPrefix(API_PREFIX);
   // Cookie-ul de refresh (httpOnly) se citește din cereri; CORS permite credențiale doar pentru originile din CORS_ORIGIN.

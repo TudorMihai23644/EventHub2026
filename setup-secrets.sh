@@ -17,5 +17,12 @@ if [ ! -f secrets/resend_api_key.txt ]; then
   read key
   printf '%s' "$key" > secrets/resend_api_key.txt
 fi
+# Opțional: Cloudinary pentru imaginile de copertă (cloudinary://<api_key>:<api_secret>@<cloud_name>).
+# Gol = imaginile se salvează local, în volumul Docker „uploads”.
+if [ ! -f secrets/cloudinary_url.txt ]; then
+  printf 'CLOUDINARY_URL (optional; Enter = imagini pe disc): '
+  read url
+  printf '%s' "$url" > secrets/cloudinary_url.txt
+fi
 chmod 644 secrets/*.txt   # imaginea postgres citește fișierul ca alt utilizator
 echo "Gata. Secretele sunt in ./secrets (ignorate de Git)."

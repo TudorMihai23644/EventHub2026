@@ -43,6 +43,11 @@ services:
       APP_TIMEZONE: ${APP_TIMEZONE:-Europe/Bucharest}
       # Adresa publică a API-ului: linkurile „.ics” din emailuri trimit aici.
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3000/api}
+      # Imaginile de copertă: local în volumul `uploads`; pe Cloudinary dacă secrets/cloudinary_url.txt nu e gol.
+      UPLOADS_DIR: /app/uploads
+      CLOUDINARY_URL_FILE: /run/secrets/cloudinary_url
+    volumes:
+      - uploads:/app/uploads
       # Cookie-ul de sesiune: imaginea rulează cu NODE_ENV=production, dar local pe http://localhost (fără HTTPS).
       # Într-o instalare reală, cu HTTPS, setează COOKIE_SECURE=true (sau elimină linia).
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
@@ -51,6 +56,7 @@ services:
       - jwt_secret
       - organizer_invite_code
       - resend_api_key
+      - cloudinary_url
     ports:
       - "3000:3000"
     depends_on:
@@ -71,6 +77,9 @@ secrets:
     file: ./secrets/organizer_invite_code.txt
   resend_api_key:
     file: ./secrets/resend_api_key.txt # poate fi gol
+  cloudinary_url:
+    file: ./secrets/cloudinary_url.txt # poate fi gol (imaginile rămân pe disc)
 
 volumes:
   pgdata:
+  uploads: # imaginile de copertă (stocarea locală)

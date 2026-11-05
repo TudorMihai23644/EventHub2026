@@ -6,9 +6,10 @@ import { EventsController } from './events.controller';
 import { EventsService } from './events.service';
 import { MailModule } from '../mail/mail.module';
 import { WaitlistModule } from '../waitlist/waitlist.module';
+import { ImagesModule } from '../images/images.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Event, Registration]), MailModule, WaitlistModule],
+  imports: [TypeOrmModule.forFeature([Event, Registration]), MailModule, WaitlistModule, ImagesModule],
   controllers: [EventsController],
   providers: [EventsService],
 })

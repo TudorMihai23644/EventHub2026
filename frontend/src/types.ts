@@ -27,6 +27,8 @@ export interface EventItem {
   onlineUrl: string | null;
   /** Există un link online (chiar dacă nu îl vezi încă). */
   hasOnlineLink: boolean;
+  /** Imaginea de copertă (WebP, 16:9): `small` 640×360 pentru listă, `large` 1600×900 pentru pagina evenimentului. */
+  cover: { small: string; large: string } | null;
   capacity: number;
   organizerId: string;
   organizer?: { id: string; name: string };

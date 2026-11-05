@@ -210,14 +210,17 @@ export class EventsService {
 
   // Participanții sunt anunțați înainte de ștergere: după ea, înscrierile (și lista lor) nu mai există.
   // Lock ca la înscriere: nimeni nu se poate înscrie între citirea listei și ștergere.
+  /** Întoarce coperta evenimentului șters: fișierele ei se șterg după ce ștergerea din baza de date a reușit. */
   async remove(userId: string, id: string) {
-    await this.dataSource.transaction(async (m) => {
+    return this.dataSource.transaction(async (m) => {
       const event = this.assertOwner(
         await m.findOne(Event, { where: { id }, lock: { mode: 'pessimistic_write' } }),
         userId,
       );
       await this.notifications.eventCancelled(m, event);
+      const cover = event.coverImage ?? null;
       await m.remove(event);
+      return cover;
     });
   }
 

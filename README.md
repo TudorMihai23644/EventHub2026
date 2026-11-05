@@ -36,7 +36,7 @@ Tabelele se creează prin migrări, rulate automat la pornirea API-ului (vezi [M
 ## Secrete
 
 Nicio valoare secretă nu este în cod sau în `docker-compose.yml`. Sunt în `secrets/`
-(`db_password.txt`, `jwt_secret.txt`, `organizer_invite_code.txt`, `resend_api_key.txt`), ignorat de Git. Docker Compose le
+(`db_password.txt`, `jwt_secret.txt`, `organizer_invite_code.txt`, `resend_api_key.txt`, `cloudinary_url.txt`), ignorat de Git. Docker Compose le
 declară în secțiunea `secrets:` și le montează în containere ca fișiere în `/run/secrets`,
 deci nu apar în `docker inspect`, în imagini sau în `docker compose config`. Backend-ul le citește prin
 `NUME_FILE` (vezi `backend/src/common/secrets.ts`) și nu pornește dacă lipsește `JWT_SECRET` sau parola bazei de date.
@@ -44,8 +44,8 @@ PostgreSQL este expus doar pe `127.0.0.1`. Frontend-ul nu conține secrete: vari
 
 Dacă schimbi `db_password.txt` după ce baza a fost creată, rulează `docker compose down -v` (șterge datele locale), altfel parola din volum rămâne cea veche.
 
-`resend_api_key.txt` este opțional, dar fișierul trebuie să existe (poate fi gol), altfel `docker compose` nu pornește.
-Dacă ai rulat scriptul de secrete înainte de emailuri, rulează-l din nou: creează doar fișierele care lipsesc.
+`resend_api_key.txt` și `cloudinary_url.txt` sunt opționale, dar fișierele trebuie să existe (pot fi goale), altfel `docker compose` nu pornește.
+Dacă ai rulat scriptul de secrete înainte de ele, rulează-l din nou: creează doar fișierele care lipsesc.
 
 ## Teste
 
@@ -90,6 +90,9 @@ Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt def
 | GET | `/events?search=&sort=asc\|desc&available=true&category=&page=1&limit=20` | public | doar evenimente viitoare; răspuns paginat `{ items, total, page, limit, totalPages }`; `limit` maxim 50, `search` maxim 100 de caractere (`%` și `_` se caută literal); 400 pentru valori invalide |
 | GET | `/events/:id/registrations` | organizator proprietar | lista participanților înscriși |
 | GET | `/events/:id` | public | include `registeredCount`, `availableSeats` și `calendar: { google, icsPath }` |
+| POST | `/events/:id/cover` | organizator proprietar | `multipart/form-data`, câmpul `file`: JPEG/PNG/WebP ≤ 5 MB → 200 `{ cover: { small, large } }`; 400 tip/imagine invalidă; 413 prea mare |
+| DELETE | `/events/:id/cover` | organizator proprietar | 204 |
+| GET | `/uploads/:file` | public | imaginile de copertă (stocarea locală), `image/webp`, cache un an |
 | GET | `/events/:id/calendar.ics` | public | fișier iCalendar (`text/calendar`), pentru Apple Calendar, Outlook, telefoane |
 | GET | `/events/mine` | organizator | dashboard cu numărul de înscrieri |
 | GET | `/events/mine/summary` | organizator | `{eventsCount, upcomingCount, totalRegistrations, totalWaiting}` |
@@ -120,6 +123,7 @@ sunt publice, dar adaptează răspunsul dacă cererea are token.
 - **Adaugă în calendar:** pe pagina evenimentului și în emailurile de confirmare, „ai primit un loc” și memento: link Google Calendar și fișier
   `.ics` (`GET /events/:id/calendar.ics`). Orele sunt în UTC; fiecare calendar le arată în fusul orar al utilizatorului. UID-ul este fix, deci
   un import după o modificare înlocuiește intrarea. Se folosește ora de sfârșit; fără ea, în calendar evenimentul durează **2 ore**.
+- Emailurile conțin linkuri, nu atașamente (endpointul batch Resend folosit de coadă nu acceptă atașamente).
 
 ## Detaliile unui eveniment
 
@@ -132,7 +136,14 @@ sunt publice, dar adaptează răspunsul dacă cererea are token.
 - **Format:** fizic (locație obligatorie), online (link obligatoriu, locul afișat „Online”) sau hibrid (amândouă). Linkul trebuie să fie `https://`.
   **Linkul îl văd doar participanții înscriși și organizatorul** (pagina evenimentului, emailurile de confirmare, „ai primit un loc”, memento,
   „s-a schimbat linkul”). Lista publică, `.ics`, linkul Google și cei de pe lista de așteptare nu îl primesc (`hasOnlineLink` spune doar că există).
-- Emailurile conțin linkuri, nu atașamente (endpointul batch Resend folosit de coadă nu acceptă atașamente).
+- **Imagine de copertă** (opțională): `POST /events/:id/cover` (organizatorul, `multipart/form-data`, câmpul `file`), `DELETE /events/:id/cover`.
+  - Verificată pe server: cel mult **5 MB** (încărcarea se oprește peste limită, 413), tipul stabilit din conținut (semnătura fișierului, nu numele):
+    doar **JPEG, PNG, WebP** (SVG, GIF, orice altceva → 400), cel mult 40 de megapixeli.
+  - Procesată cu `sharp`: rotită după orientarea din cameră, **toate metadatele eliminate** (EXIF poate conține locația GPS a telefonului),
+    decupată la 16:9 în două variante WebP: 1600×900 (pagina evenimentului) și 640×360 (lista). Imaginea originală nu se păstrează.
+  - Stocare: implicit pe disc (volumul Docker `uploads`, servit la `/api/uploads/…` cu cache de un an); pe **Cloudinary** dacă
+    `secrets/cloudinary_url.txt` (`CLOUDINARY_URL`, forma `cloudinary://<api_key>:<api_secret>@<cloud_name>`) nu e gol.
+  - Înlocuirea, eliminarea sau ștergerea evenimentului șterg și fișierele vechi. Răspunsurile conțin doar `cover: { small, large }`.
 
 ## Lista de așteptare
 

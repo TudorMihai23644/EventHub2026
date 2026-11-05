@@ -1,6 +1,7 @@
 import { Event } from './event.entity';
 import { AuthUser } from '../auth/roles';
 import { categoryLabel, placeLabel } from './categories';
+import { coverView } from '../images/cover.service';
 
 /** ONGOING: a început, dar nu s-a terminat (are oră de sfârșit). Pentru reguli contează tot `isPast` (= a început). */
 export type EventStatus = 'OPEN' | 'FULL' | 'ONGOING' | 'PAST';
@@ -30,6 +31,9 @@ export function buildEventView(e: Event, viewer?: AuthUser, registered = false, 
   return {
     ...e,
     onlineUrl: canSeeOnlineUrl ? e.onlineUrl ?? null : null,
+    // doar adresele imaginilor; cheile interne de stocare nu ies din API
+    coverImage: undefined,
+    cover: coverView(e.coverImage),
     hasOnlineLink: (e.format === 'ONLINE' || e.format === 'HYBRID') && !!e.onlineUrl,
     categoryLabel: categoryLabel(e.category),
     place: placeLabel(e),

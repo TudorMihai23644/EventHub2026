@@ -11,6 +11,9 @@ export class ApiError extends Error {
 
 export interface Session { accessToken: string; user: User }
 
+/** Adresele relative ale API-ului (ex. imaginile locale „/uploads/…”) devin absolute; cele https (Cloudinary) rămân. */
+export const assetUrl = (url: string) => (url.startsWith('/') ? `${API_URL}${url}` : url);
+
 // ---------- sesiunea ----------
 // Access token-ul (15 minute) stă DOAR în memorie: niciun script nu îl găsește în localStorage, iar la reîncărcarea
 // paginii se cere unul nou cu refresh token-ul din cookie-ul httpOnly (pe care JavaScript nu îl poate citi deloc).
@@ -98,16 +101,18 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
 }
 
 async function send(path: string, opts: ApiOptions, token: string | null): Promise<Response> {
+  // FormData (încărcare de fișiere): browserul pune singur Content-Type cu `boundary`; nu îl suprascriem.
+  const isForm = typeof FormData !== 'undefined' && opts.body instanceof FormData;
   try {
     return await fetch(`${API_URL}${path}`, {
       method: opts.method ?? 'GET',
       credentials: opts.cookies ? 'include' : 'same-origin',
       headers: {
-        'Content-Type': 'application/json',
+        ...(isForm ? {} : { 'Content-Type': 'application/json' }),
         ...(opts.cookies ? CLIENT_HEADER : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      body: opts.body === undefined ? undefined : isForm ? (opts.body as FormData) : JSON.stringify(opts.body),
     });
   } catch {
     throw new ApiError('Serverul nu răspunde. Verifică dacă backend-ul rulează.', 0);

@@ -148,3 +148,15 @@ h2 .pill { vertical-align: middle; }
 /* categoria evenimentului */
 .tag { display: inline-block; margin: .35rem 0 0; color: var(--red-text); font-weight: 700; letter-spacing: .02em; }
 .detail-head .tag { margin: 0 0 .35rem; }
+
+/* imaginea de copertă */
+.row-cover { flex: none; width: 8.5rem; aspect-ratio: 16 / 9; height: auto; object-fit: cover; border-radius: .5rem; border: 1px solid var(--line); background: var(--raised); }
+.detail-cover { display: block; width: 100%; aspect-ratio: 16 / 9; height: auto; object-fit: cover; border-radius: .85rem; border: 1px solid var(--line); margin-bottom: 1.5rem; background: var(--raised); }
+.cover-field { display: grid; gap: .6rem; justify-items: start; }
+.cover-label { font-weight: 700; font-size: .92rem; color: var(--text); }
+.cover-preview { width: 100%; max-width: 28rem; aspect-ratio: 16 / 9; object-fit: cover; border-radius: .6rem; border: 1px solid var(--line); }
+/* inputul de fișier rămâne accesibil din tastatură, dar se vede doar butonul */
+.file-btn { position: relative; flex-direction: row; }
+.file-btn input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+.file-btn:focus-within { outline: 3px solid var(--red); outline-offset: 3px; }
+@media (max-width: 600px) { .row-cover { width: 100%; } }

@@ -24,4 +24,10 @@ if (Missing 'resend_api_key.txt') {
   $key = Read-Host 'Cheia Resend (optional; Enter = fara emailuri reale)'
   Write-Secret 'resend_api_key.txt' $key.Trim()
 }
+# Optional: Cloudinary pentru imaginile de coperta (cloudinary://<api_key>:<api_secret>@<cloud_name>).
+# Gol = imaginile se salveaza local, in volumul Docker 'uploads'.
+if (Missing 'cloudinary_url.txt') {
+  $url = Read-Host 'CLOUDINARY_URL (optional; Enter = imagini pe disc)'
+  Write-Secret 'cloudinary_url.txt' $url.Trim()
+}
 Write-Host 'Gata. Secretele sunt in .\secrets (ignorate de Git).'

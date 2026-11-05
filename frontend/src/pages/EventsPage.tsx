@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../api';
+import { api, assetUrl } from '../api';
 import { ENDPOINTS } from '../endpoints';
 import { EventItem, Paginated } from '../types';
 import { DateTile, Loading, errMsg, seatsLabel, useEventOptions } from '../ui';
@@ -104,7 +104,9 @@ export default function EventsPage() {
         {events?.map((e) => (
           <li key={e.id}>
             <Link to={`/events/${e.id}`} className="row">
-              <DateTile iso={e.startsAt} />
+              {e.cover
+                ? <img className="row-cover" src={assetUrl(e.cover.small)} alt="" width={640} height={360} loading="lazy" />
+                : <DateTile iso={e.startsAt} />}
               <div className="row-body">
                 <h2>{e.title}</h2>
                 <p className="muted">

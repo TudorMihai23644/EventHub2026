@@ -1,6 +1,12 @@
 import {
-  Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Query, Res, UseGuards,
+  BadRequestException, Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Query, Res,
+  UploadedFile, UseFilters, UseGuards, UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { CoverService } from '../images/cover.service';
+import { MAX_UPLOAD_BYTES } from '../images/image-processing';
+import { UploadErrorsFilter } from '../images/upload-errors.filter';
 import type { Response } from 'express';
 import { MAIL_CONFIG, MailConfig } from '../mail/mail.config';
 import { calendarLinks, eventIcs, icsFilename } from './calendar';
@@ -14,7 +20,11 @@ import { RequireVerifiedEmail } from '../auth/verified-email.guard';
 
 @Controller(ROUTES.events.base)
 export class EventsController {
-  constructor(private readonly events: EventsService, @Inject(MAIL_CONFIG) private readonly mail: MailConfig) {}
+  constructor(
+    private readonly events: EventsService,
+    @Inject(MAIL_CONFIG) private readonly mail: MailConfig,
+    private readonly covers: CoverService,
+  ) {}
 
   @Get()
   @UseGuards(OptionalJwtGuard)
@@ -87,7 +97,30 @@ export class EventsController {
   @HttpCode(204)
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ORGANIZER')
-  remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.events.remove(user.id, id);
+  async remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    const cover = await this.events.remove(user.id, id);
+    await this.covers.discard(cover); // după ce ștergerea din baza de date a reușit
+  }
+
+  // imaginea de copertă: un singur fișier, cel mult 5 MB (multer oprește primirea peste limită)
+  @Post(ROUTES.events.cover)
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ORGANIZER')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: MAX_UPLOAD_BYTES, files: 1, fields: 0, parts: 2 } }))
+  @UseFilters(UploadErrorsFilter)
+  async uploadCover(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @UploadedFile() file?: Express.Multer.File) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException({ statusCode: 400, error: 'Bad Request', message: 'Alege o imagine.', fields: { cover: 'Alege o imagine.' } });
+    }
+    return { cover: await this.covers.set(user.id, id, file.buffer) };
+  }
+
+  @Delete(ROUTES.events.cover)
+  @HttpCode(204)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ORGANIZER')
+  async removeCover(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.covers.remove(user.id, id);
   }
 }

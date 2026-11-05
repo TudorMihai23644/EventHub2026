@@ -2,3 +2,6 @@ node_modules
 dist
 .env
 .env.local
+
+# imaginile de copertă încărcate local (npm run start:dev)
+uploads/
