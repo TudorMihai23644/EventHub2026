@@ -23,7 +23,7 @@ Fără Docker pentru backend: pornește doar `docker compose up db`, apoi
 `cd backend && cp .env.example .env`, completează în `.env` aceleași valori ca în `secrets/*.txt` și rulează `npm install && npm run start:dev`.
 
 Datele sunt păstrate în volumul Docker `pgdata` și rămân după repornire.
-Tabelele se creează automat (`synchronize: true`; pentru producție se folosesc migrări).
+Tabelele se creează prin migrări, rulate automat la pornirea API-ului (vezi [Migrări](#migrări)). O bază creată înainte de migrări este recunoscută și păstrată.
 
 ## Configurare
 
@@ -49,7 +49,7 @@ Dacă schimbi `db_password.txt` după ce baza a fost creată, rulează `docker c
 ```bash
 cd backend && npm test
 ```
-Teste unitare pentru regulile de înscriere (duplicat, capacitate, eveniment trecut, succes, eveniment inexistent), anulare (după începere, neînscris, lock), modificarea capacității (sub numărul de înscriși, alt organizator, lock), înregistrarea organizatorilor (cod lipsă, greșit, neconfigurat, corect) și limitarea cererilor (429 după limită, IP + email, rute nelimitate, comutatorul Swagger).
+Teste unitare pentru regulile de înscriere (duplicat, capacitate, eveniment trecut, succes, eveniment inexistent), anulare (după începere, neînscris, lock), modificarea capacității (sub numărul de înscriși, alt organizator, lock), înregistrarea organizatorilor (cod lipsă, greșit, neconfigurat, corect), limitarea cererilor (429 după limită, IP + email, rute nelimitate, comutatorul Swagger) și setările bazei de date (fără `synchronize`, migrări, `DB_MIGRATIONS_RUN`).
 
 ## API
 
@@ -84,6 +84,32 @@ sunt publice, dar adaptează răspunsul dacă cererea are token.
 
 Logout se face pe client prin ștergerea token-ului JWT.
 
+## Migrări
+
+Schema bazei de date se schimbă **doar prin migrări** (`backend/src/database/migrations`), niciodată automat (`synchronize` este oprit).
+Setările conexiunii sunt într-un singur loc: `backend/src/database/data-source.ts`, folosit și de aplicație, și de CLI-ul TypeORM.
+
+- La pornire, API-ul rulează migrările noi (`DB_MIGRATIONS_RUN`, implicit `true`).
+- Prima migrare (`InitialSchema`) recunoaște o bază creată înainte de migrări: nu creează nimic, doar se marchează ca aplicată. Datele rămân.
+
+**Cum schimbi schema** (din `backend/`, cu baza pornită):
+
+```bash
+# 1. modifici entitatea (ex. events/event.entity.ts)
+npm run migration:generate -- src/database/migrations/NumeSchimbare   # 2. generează migrarea
+# 3. citești fișierul generat, apoi îl adaugi în git
+npm run migration:run      # 4. aplică (sau repornește API-ul)
+```
+
+| Comandă | Ce face |
+|---|---|
+| `npm run migration:show` | lista migrărilor și care sunt aplicate (`[X]`) |
+| `npm run migration:check` | eșuează dacă entitățile și migrările diferă (o migrare uitată) |
+| `npm run migration:revert` | anulează ultima migrare (atenție: `InitialSchema` șterge toate tabelele) |
+| `npm run migration:run:prod` | rulează migrările compilate, în imaginea Docker |
+
+Cu mai multe instanțe ale API-ului pornite simultan: setează `DB_MIGRATIONS_RUN=false` și rulează `migration:run:prod` o singură dată, ca pas separat de deploy.
+
 ## Securitate
 
 - **Limitarea cererilor** (`@nestjs/throttler`, global). Limitele sunt într-un singur loc: `backend/src/common/security.ts`.
@@ -109,6 +135,7 @@ Logout se face pe client prin ștergerea token-ului JWT.
 
 ```
 backend/src/{auth,users,events,registrations,common}   # module NestJS cu responsabilități separate
+backend/src/database/{data-source.ts,migrations/}      # setările bazei de date și migrările
 frontend/src/{pages,auth.tsx,api.ts,ui.tsx}     # pagini, context de autentificare, client HTTP
 ```
 

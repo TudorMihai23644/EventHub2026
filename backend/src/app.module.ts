@@ -8,7 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { EventsModule } from './events/events.module';
 import { RegistrationsModule } from './registrations/registrations.module';
-import { secret } from './common/secrets';
+import { dataSourceOptions } from './database/data-source';
 
 @Module({
   controllers: [HealthController],
@@ -16,18 +16,8 @@ import { secret } from './common/secrets';
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
   imports: [
     ThrottlerModule.forRoot(throttlerOptions),
-    TypeOrmModule.forRootAsync({
-      useFactory: () => ({
-        type: 'postgres' as const,
-        host: process.env.DB_HOST ?? 'localhost',
-        port: Number(process.env.DB_PORT ?? 5432),
-        username: process.env.DB_USER ?? 'eventhub',
-        password: secret('DB_PASSWORD'),
-        database: process.env.DB_NAME ?? 'eventhub',
-        autoLoadEntities: true,
-        synchronize: true, // pentru proba tehnică; în producție se folosesc migrări
-      }),
-    }),
+    // Schema se creează și se modifică doar prin migrări, rulate la pornire (vezi database/data-source.ts).
+    TypeOrmModule.forRootAsync({ useFactory: () => dataSourceOptions() }),
     UsersModule,
     AuthModule,
     EventsModule,

@@ -37,8 +37,8 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 |---|---|---|---|---|---|
 | [1](#idea-1) | [x] | Block cancelling a registration after the event started + lock when lowering capacity | Fix | S | |
 | [2](#idea-2) | [x] | Rate limiting (`@nestjs/throttler`) + `helmet` + Swagger only outside production | Security | S | |
-| [4](#idea-4) | [ ] | TypeORM migrations instead of `synchronize: true` | Production | S | |
 | [3](#idea-3) | ❌ | ~~Delete dead frontend code~~ – cancelled, replaced by [#18](#idea-18) | Cleanup | XS | |
+| [4](#idea-4) | [x] | TypeORM migrations instead of `synchronize: true` | Production | S | |
 | [5](#idea-5) | [ ] | Pagination on `GET /events` + `available` filter in SQL + single aggregate query for `summary` | Performance | S–M | |
 | [6](#idea-6) | [ ] | Transactional email (Resend): registration confirmation, event changed/deleted notice | Feature + API | M | |
 | [7](#idea-7) | [ ] | Password reset + email verification | Feature | M | 6 |
@@ -248,9 +248,92 @@ Because none of them is imported, Vite already leaves them out of the built app.
 <a id="idea-4"></a>
 ## 4. TypeORM migrations instead of `synchronize`
 
-**Status:** idea · plan not written yet
+**Status:** ✅ done 2026-11-05 · 49/49 backend tests pass, TypeScript compiles, all live checks passed, Docker image builds · **Type:** Production · **Effort:** S
 
-`synchronize: true` in `app.module.ts` creates the schema automatically and can drop columns in production. Switch to TypeORM migrations.
+**Files changed:** `backend/package.json` (+ dev `ts-node` 10, 6 `migration:*` scripts), `backend/src/app.module.ts`, new `backend/src/database/data-source.ts`, new `backend/src/database/cli-data-source.ts`, new `backend/src/database/data-source.spec.ts`, new `backend/src/database/migrations/1793883387970-InitialSchema.ts`, `backend/.env.example`, `README.md` (new "Migrări" section).
+
+**Live checks** (throwaway `postgres:16-alpine` on port 55432, deleted afterwards; your `pgdata` volume was never touched):
+
+| Check | Result |
+|---|---|
+| Compiled API started on an empty database | ✅ created `users`, `events`, `registrations`; `migrations` has 1 row; `/api/health` = ok |
+| `migration:check` on that database | ✅ "No changes in database schema were found", exit 0 |
+| Database created the old way (`synchronize`) + 1 user, then `migration:run` | ✅ no table created (baseline), migration recorded, **user kept** |
+| `migration:check` on the old-style database | ✅ no changes, so the old schema is identical to the migration's |
+| `migration:revert` then `migration:run` | ✅ tables dropped, then created again |
+| `migration:check` with a stray column added | ✅ fails (exit 1) and prints the missing SQL |
+| `docker build ./backend` | ✅ image contains `dist/database/migrations/…InitialSchema.js`, the `migration:run:prod` script and the TypeORM CLI |
+
+**Differences from the plan:**
+- Two files instead of one: `data-source.ts` (options only, no side effects, so the app and the tests can import it) and `cli-data-source.ts` (the `DataSource` the CLI needs).
+- The first live run showed `pg` warning "client.query() when the client is already executing a query": the baseline guard checked the 3 tables in parallel on one connection. Fixed to check them one after another.
+- `docker-compose.yml` unchanged: `DB_MIGRATIONS_RUN` defaults to `true`, which is what local Docker needs.
+
+Replace automatic schema sync with versioned migration files. No API or frontend change.
+
+### Problem
+
+`app.module.ts` has `synchronize: true`. On every start, TypeORM compares the entities with the database and changes the database to match, with no review and no history:
+- **Renaming a property** (e.g. `location` → `venue`) makes TypeORM drop the old column and create a new empty one, and that column's data is gone.
+- **Changing a type or length** can truncate or drop data the same way.
+- There's no record of *what* changed *when*, and no way to undo a change.
+- The README itself says "pentru producție se folosesc migrări".
+
+With migrations, every schema change is a `.ts` file in git that you read before it runs, the database records which ones were applied, and each one can be reverted.
+
+### Steps
+
+**Setup**
+1. Install `ts-node` (dev only). TypeORM 0.3.31 is already installed and its command-line tool needs `ts-node` to read `.ts` files.
+2. New file `backend/src/database/data-source.ts`, the one place for database settings:
+   - connection values (host, port, user, `secret('DB_PASSWORD')`, database), the same as today;
+   - an explicit entity list `[User, Event, Registration]` (`autoLoadEntities` only works inside Nest, and the command-line tool runs outside Nest);
+   - `migrations: [__dirname + '/migrations/*.{ts,js}']`, so the same path works with `ts-node` in development and with compiled `.js` in Docker;
+   - `synchronize: false`;
+   - a default export `new DataSource(...)` for the command-line tool.
+3. `app.module.ts`: use these same options, plus `migrationsRun` so pending migrations run automatically when the API starts. `docker compose up` keeps working with no extra step. A new optional env var `DB_MIGRATIONS_RUN` (default `true`) turns this off for deployments that run migrations as a separate step.
+4. `package.json` scripts:
+   - `migration:generate -- src/database/migrations/Name`: compares entities with the database and writes a new migration;
+   - `migration:run` / `migration:revert` / `migration:show`;
+   - `migration:check`: fails if the entities and the migrations differ, so a forgotten migration is caught (`--check`, supported by 0.3.31). It goes into CI in [#13](#idea-13);
+   - `migration:run:prod`: runs compiled migrations inside the Docker image (`node node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js`).
+
+**First migration**
+5. Generate `InitialSchema` against an **empty, throwaway** Postgres (`docker run --rm -e POSTGRES_PASSWORD=tmp -p 55432:5432 postgres:16-alpine`). It doesn't need `secrets/` and never touches your real data. Expected content: the `uuid-ossp` extension, tables `users`, `events`, `registrations`, the unique email, `UNIQUE(userId, eventId)`, and the foreign keys with `ON DELETE CASCADE`.
+6. **Baseline guard for databases that already exist.** Your `pgdata` volume, and anyone else's, already has these tables, created by `synchronize`. Run as-is, `InitialSchema` would fail with "relation already exists". So at its start: if `users`, `events` and `registrations` already exist, it creates nothing and only gets recorded as applied. `synchronize` and `migration:generate` use the same naming rules, so an existing schema is identical to what the migration would create.
+7. Remove `synchronize: true` from `app.module.ts`.
+
+**Checks**
+8. Unit test `database/data-source.spec.ts`: `synchronize` is `false`, the migrations path is set, all 3 entities are listed, and `migrationsRun` follows `DB_MIGRATIONS_RUN`.
+9. Check against the throwaway Postgres:
+   - empty database → API start creates all tables, and the `migrations` table has 1 row;
+   - `migration:check` → "no changes", which proves the migration matches the entities;
+   - database created the old way (`synchronize`) → the baseline is skipped, recorded, and no data is lost;
+   - `migration:revert` → tables removed; `migration:run` → back again.
+10. `npm test` (all 40+ tests) and `npx tsc --noEmit`; `docker compose build` to confirm the image builds and `dist/database/migrations/*.js` is inside it.
+
+**Docs**
+11. `README.md`: remove the "`synchronize: true`" sentence; add a "Migrări" section explaining how to change the schema (edit entity → `npm run migration:generate` → read the file → commit → it runs at the next start) plus `DB_MIGRATIONS_RUN`. `backend/.env.example`: add `DB_MIGRATIONS_RUN`.
+12. In this file, tick item 4 as `[x]`.
+
+### How it affects the project
+
+| Area | Effect |
+|---|---|
+| **Your data** | Kept. The baseline guard recognises the existing tables, so there's no `docker compose down -v`. |
+| **Running the app** | Same commands as today. Migrations run on startup; with nothing new to apply, startup only does one extra query. |
+| **Changing the schema** | New rule: after editing an entity you must run `migration:generate` and commit the file. Skip it and the app starts, but the new column is missing and queries fail; `migration:check` (later in CI) catches this. |
+| **Database** | One new table, `migrations` (the list of applied migrations). Existing tables unchanged. |
+| **API / frontend** | None. |
+| **Dependencies** | `ts-node` (dev only). |
+| **Config** | One new optional env var, `DB_MIGRATIONS_RUN`. |
+| **Limitations** | Running migrations on startup is fine with one API instance. If several start at once, run `migration:run:prod` as a separate deploy step and set `DB_MIGRATIONS_RUN=false`. |
+| **Later items** | Every idea that changes the database ships with its own migration: [#7](#idea-7) reset tokens, [#8](#idea-8) refresh tokens, [#9](#idea-9) waitlist, [#11](#idea-11) `endsAt` / category / image, [#15](#idea-15) check-in. Do this one **before** those. |
+| **Risk** | Low–medium. The delicate part is step 6 on an existing database; it gets its own check in step 9. |
+
+### Files to change
+
+`backend/package.json`, `backend/src/app.module.ts`, new `backend/src/database/data-source.ts`, new `backend/src/database/data-source.spec.ts`, new `backend/src/database/migrations/<timestamp>-InitialSchema.ts`, `backend/.env.example`, `README.md`.
 
 [↑ Back to table of contents](#table-of-contents)
 
@@ -447,4 +530,6 @@ Make the unused "Pure Black & Red Neon 4K" design the app's real look, instead o
 <!-- Add new ideas here as: - YYYY-MM-DD – idea – short reason -->
 - 2026-11-05 – Unused-code check (`knip`) in CI, as part of [#13](#idea-13) – would have caught the dead files from [#3](#idea-3) automatically.
 - 2026-11-05 – Add `.gitattributes` (`* text=auto eol=lf`) – this machine has `core.autocrlf=true`, so a fresh checkout turns files into CRLF; `setup-secrets.sh` then fails on Mac/Linux (`sh\r: not found`).
+- 2026-11-05 – `tsconfig.build.json` that excludes `*.spec.ts` – `nest build` currently compiles the test files into `dist/` and they end up in the Docker image.
+- 2026-11-05 – `createdAt` columns are `TIMESTAMP` without time zone (only `startsAt` has one) – consider a migration to `timestamptz` for consistency.
 - 2026-11-05 – Update outdated dependencies that `npm install` warns about (`glob`, `inflight`, `uuid`, pulled in by other packages), as part of [#13](#idea-13).
