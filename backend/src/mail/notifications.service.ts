@@ -66,6 +66,13 @@ export class Notifications {
     return people.length + waiting.length;
   }
 
+  /** Memento-ul de cu o zi înainte (trimis de RemindersService). */
+  async reminder(m: EntityManager, d: { user: Pick<User, 'name' | 'email'>; event: Event; hasWaitlist: boolean; now: Date }) {
+    await this.enqueue(m, 'event-reminder', d.user, T.eventReminder(this.cfg, {
+      name: d.user.name, event: info(d.event), hasWaitlist: d.hasWaitlist, now: d.now,
+    }));
+  }
+
   // ---------- listă de așteptare ----------
 
   async waitlistJoined(m: EntityManager, d: { userId: string; event: Event; position: number }) {

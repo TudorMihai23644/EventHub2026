@@ -25,4 +25,8 @@ export class Registration {
 
   @CreateDateColumn()
   createdAt: Date;
+
+  /** Când s-a trimis memento-ul de cu o zi înainte. Se golește dacă evenimentul își schimbă data. */
+  @Column({ type: 'timestamptz', nullable: true })
+  reminderSentAt: Date | null;
 }

@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { EventsModule } from './events/events.module';
 import { RegistrationsModule } from './registrations/registrations.module';
+import { RemindersModule } from './reminders/reminders.module';
 import { dataSourceOptions } from './database/data-source';
 
 @Module({
@@ -24,6 +25,7 @@ import { dataSourceOptions } from './database/data-source';
     AuthModule,
     EventsModule,
     RegistrationsModule,
+    RemindersModule, // memento cu o zi înainte de eveniment
   ],
 })
 export class AppModule {}

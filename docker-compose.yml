@@ -41,6 +41,8 @@ services:
       MAIL_FROM: ${MAIL_FROM:-EventHub <onboarding@resend.dev>}
       APP_URL: ${APP_URL:-http://localhost:5173}
       APP_TIMEZONE: ${APP_TIMEZONE:-Europe/Bucharest}
+      # Adresa publică a API-ului: linkurile „.ics” din emailuri trimit aici.
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3000/api}
       # Cookie-ul de sesiune: imaginea rulează cu NODE_ENV=production, dar local pe http://localhost (fără HTTPS).
       # Într-o instalare reală, cu HTTPS, setează COOKIE_SECURE=true (sau elimină linia).
       COOKIE_SECURE: ${COOKIE_SECURE:-false}

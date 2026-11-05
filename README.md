@@ -88,7 +88,8 @@ Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt def
 | POST | `/auth/email/resend` | autentificat | 202 cu un link nou (cel vechi se anulează); 400 dacă adresa e deja confirmată; 5/oră per IP |
 | GET | `/events?search=&sort=asc\|desc&available=true&page=1&limit=20` | public | doar evenimente viitoare; răspuns paginat `{ items, total, page, limit, totalPages }`; `limit` maxim 50, `search` maxim 100 de caractere (`%` și `_` se caută literal); 400 pentru valori invalide |
 | GET | `/events/:id/registrations` | organizator proprietar | lista participanților înscriși |
-| GET | `/events/:id` | public | include `registeredCount`, `availableSeats` |
+| GET | `/events/:id` | public | include `registeredCount`, `availableSeats` și `calendar: { google, icsPath }` |
+| GET | `/events/:id/calendar.ics` | public | fișier iCalendar (`text/calendar`), pentru Apple Calendar, Outlook, telefoane |
 | GET | `/events/mine` | organizator | dashboard cu numărul de înscrieri |
 | GET | `/events/mine/summary` | organizator | `{eventsCount, upcomingCount, totalRegistrations, totalWaiting}` |
 | POST | `/events` | organizator cu email confirmat | 201 / 400 / 403 `EMAIL_NOT_VERIFIED` |
@@ -107,6 +108,18 @@ Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt def
 `waitlistCount`, `isWaitlisted`, `waitlistPosition`, `canJoinWaitlist`, `canLeaveWaitlist`), iar erorile de validare
 vin ca `{ message, fields: { câmp: mesaj } }` și se afișează lângă fiecare câmp. Rutele `GET /events` și `GET /events/:id`
 sunt publice, dar adaptează răspunsul dacă cererea are token.
+
+## Memento și calendar
+
+- **Memento cu o zi înainte.** Un job (la fiecare 15 minute) trimite un email „Mâine / Astăzi / Începe în curând: «Titlu»” participanților
+  înscriși la evenimentele care încep în următoarele 24 de ore. Doar o dată per înscriere (`registrations.reminderSentAt`, marcat în aceeași
+  tranzacție în care emailul intră în coadă; două instanțe ale API-ului nu trimit de două ori).
+- Nu primesc memento: cei înscriși (sau promovați de pe listă) cu mai puțin de 24 de ore înainte (tocmai au primit confirmarea) și cei de pe
+  lista de așteptare. Dacă organizatorul mută data, memento-ul se trimite din nou, pentru noua dată.
+- **Adaugă în calendar:** pe pagina evenimentului și în emailurile de confirmare, „ai primit un loc” și memento: link Google Calendar și fișier
+  `.ics` (`GET /events/:id/calendar.ics`). Orele sunt în UTC; fiecare calendar le arată în fusul orar al utilizatorului. UID-ul este fix, deci
+  un import după o modificare înlocuiește intrarea. Evenimentele nu au încă oră de sfârșit: în calendar durează **2 ore**.
+- Emailurile conțin linkuri, nu atașamente (endpointul batch Resend folosit de coadă nu acceptă atașamente).
 
 ## Lista de așteptare
 
@@ -221,6 +234,7 @@ cu eroarea salvată. Două instanțe ale API-ului nu trimit niciodată același 
 | `MAIL_FROM` | `EventHub <onboarding@resend.dev>` | expeditorul |
 | `APP_URL` | `http://localhost:5173` | adresa frontend-ului, pentru linkurile din emailuri |
 | `APP_TIMEZONE` | `Europe/Bucharest` | fusul orar al datelor din emailuri (containerul API rulează în UTC) |
+| `PUBLIC_API_URL` | `http://localhost:3000/api` | adresa publică a API-ului, pentru linkurile `.ics` din emailuri |
 
 Planul gratuit Resend: 100 de emailuri pe zi și 3.000 pe lună. Dacă limita zilnică este atinsă (ex. ștergerea unui eveniment mare), restul emailurilor așteaptă în coadă
 și se reîncearcă; după 5 încercări (~15 minute) devin `FAILED`. Pentru volume mai mari este nevoie de un plan plătit.

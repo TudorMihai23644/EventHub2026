@@ -1,6 +1,9 @@
 import {
-  Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards,
+  Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Query, Res, UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { MAIL_CONFIG, MailConfig } from '../mail/mail.config';
+import { calendarLinks, eventIcs, icsFilename } from './calendar';
 import { EventsService } from './events.service';
 import { CreateEventDto, ListEventsQuery, UpdateEventDto } from './dto/event.dto';
 import { JwtAuthGuard, OptionalJwtGuard } from '../auth/jwt-auth.guard';
@@ -10,7 +13,7 @@ import { RequireVerifiedEmail } from '../auth/verified-email.guard';
 
 @Controller(ROUTES.events.base)
 export class EventsController {
-  constructor(private readonly events: EventsService) {}
+  constructor(private readonly events: EventsService, @Inject(MAIL_CONFIG) private readonly mail: MailConfig) {}
 
   @Get()
   @UseGuards(OptionalJwtGuard)
@@ -41,10 +44,21 @@ export class EventsController {
     return this.events.attendees(user.id, id);
   }
 
+  // fișier .ics pentru Apple Calendar, Outlook, telefoane (public)
+  @Get(ROUTES.events.calendar)
+  async calendar(@Param('id', ParseUUIDPipe) id: string, @Res({ passthrough: true }) res: Response) {
+    const event = await this.events.findOne(id);
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${icsFilename(event.title)}"`);
+    return eventIcs(event, this.mail);
+  }
+
+  // detaliile includ și linkurile „Adaugă în calendar” (Google + calea fișierului .ics)
   @Get(ROUTES.events.one)
   @UseGuards(OptionalJwtGuard)
-  one(@CurrentUser() viewer: AuthUser | undefined, @Param('id', ParseUUIDPipe) id: string) {
-    return this.events.findOne(id, viewer);
+  async one(@CurrentUser() viewer: AuthUser | undefined, @Param('id', ParseUUIDPipe) id: string) {
+    const event = await this.events.findOne(id, viewer);
+    return { ...event, calendar: calendarLinks(event, this.mail) };
   }
 
   @Post()

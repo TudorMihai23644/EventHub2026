@@ -44,7 +44,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 | [7](#idea-7) | [x] | Password reset + email verification | Feature | M | 6 |
 | [8](#idea-8) | [x] | Short access token + refresh token in httpOnly cookie, server-side logout/revocation | Security | M | |
 | [9](#idea-9) | [x] | Waitlist with automatic promotion when someone cancels | Feature | M | 1, 6 |
-| [10](#idea-10) | [ ] | 24h reminders (`@nestjs/schedule`) + `.ics` download + "Add to Google Calendar" link | Feature | S–M | 6 |
+| [10](#idea-10) | [x] | 24h reminders (`@nestjs/schedule`) + `.ics` download + "Add to Google Calendar" link | Feature | S–M | 6 |
 | [11](#idea-11) | [ ] | Event fields: `endsAt`, category/tags, cover image (Cloudinary), online/physical + link | Feature + API | M | |
 | [12](#idea-12) | [ ] | Organizer tools: CSV export of attendees, analytics (registrations over time, no-show rate) | Feature | S–M | |
 | [13](#idea-13) | [ ] | CI (lint + tests), ESLint/Prettier, frontend tests, frontend in `docker-compose` | Tooling | M | |
@@ -944,9 +944,100 @@ Backend: new `waitlist/waitlist-entry.entity.ts`, `waitlist/waitlist.service.ts`
 <a id="idea-10"></a>
 ## 10. 24h reminders + calendar export
 
-**Status:** idea · plan not written yet · **Depends on:** [6](#idea-6)
+**Status:** ✅ done 2026-11-05 · 194/194 unit + 71/71 integration tests, 14/14 end-to-end checks (compiled API + fake Resend), backend and frontend build · **browser check of the calendar buttons still to do** · **Type:** Feature · **Effort:** S–M · **Builds on:** [#6](#idea-6), [#9](#idea-9)
 
-Reminder email 24h before the event via `@nestjs/schedule`. `.ics` download (`ics` library) and an "Add to Google Calendar" link.
+**Files changed:** backend: new `events/calendar.ts` (+ spec), `reminders/reminders.service.ts`, `reminders/reminders.module.ts` (+ `reminders.spec.ts`, `reminders.int-spec.ts`), migration `1793907715897-AddRemindersAndEventUpdatedAt.ts`; changed `events/event.entity.ts` (`updatedAt`), `registrations/registration.entity.ts` (`reminderSentAt`), `events/events.controller.ts` (`calendar.ics`, calendar links), `events/events.service.ts` (reset reminder on date change), `mail/templates.ts`, `mail/notifications.service.ts`, `mail/mail.config.ts` (`PUBLIC_API_URL`), `mail/mail.module.ts`, `app.module.ts`, `common/routes.ts`, `package.json` (+ `ics` 3.12), `.env.example`; `docker-compose.yml`. Frontend: `types.ts`, `pages/EventDetailPage.tsx`. `README.md` (new "Memento și calendar" section).
+
+**Checks:**
+
+| Check | Result |
+|---|---|
+| Unit: `.ics` (UID, UTC, CRLF, escaping of `,` `;` `\` and new lines, ≤ 75 bytes per line incl. emoji and diacritics, `SEQUENCE` grows), Google link (UTC dates, 2 h, `&` and diacritics encoded), safe filenames; "who is due" rule; "Mâine / Astăzi / Începe în curând" **around midnight Bucharest vs UTC**; reminder content, waitlist hint only when there's a waitlist, no `.ics` link without `PUBLIC_API_URL` | ✅ 26 new |
+| Integration: nothing before the window, exactly once inside it; content and calendar links; registered within the window → none; waiting people → none; started event → none; **date moved → reminded again**, other edits → not; **two simultaneous runs on 30 registrations → 30 reminders, no duplicates** | ✅ 8 new |
+| Does the concurrency test catch a missing row lock? | ✅ without it: 60 reminders instead of 30 |
+| End-to-end via HTTP: details carry calendar links; Google link dates; `calendar.ics` headers, safe filename, UID / UTC start / escaped fields, ≤ 75-byte lines; 404 / 400; confirmation email has both calendar links with `PUBLIC_API_URL`; no reminder 5 days ahead; reminder delivered once the event is 20 h away (job every 3 s for the test), only once, `reminderSentAt` set | ✅ 14/14 |
+| `migration:check` | ✅ |
+
+**Differences from the plan / found along the way:**
+- **`ics` folds lines at 75 characters, not 75 bytes** as RFC 5545 requires; with Romanian diacritics (2 bytes in UTF-8) a line reached 138 bytes. The output is now unfolded and refolded on byte boundaries without splitting a character (tested with emoji too).
+- **`ics` isn't dependency-free** as the plan said: it brings `nanoid`, `runes2`, `yup`.
+- **New column `events.updatedAt`** (same migration) for the `.ics` `SEQUENCE`; existing events start from their creation time.
+- **New env var `PUBLIC_API_URL`**: the `.ics` links in emails must point to the API, not the frontend.
+- The event details return `icsPath` (relative); the frontend prefixes its own API address.
+
+### Problems
+
+1. People register days or weeks ahead and forget. Nothing reminds them, so seats go unused while others sit on the waitlist.
+2. There's no way to put an event in a calendar: users copy the date and place by hand.
+
+### Part A: reminder email ~24 hours before
+
+1. New column `registrations.reminderSentAt` (migration).
+2. A job (`@nestjs/schedule`, already used) runs **every 15 minutes** and picks registrations where:
+   - the event starts **within the next 24 hours** and hasn't started yet;
+   - `reminderSentAt` is empty;
+   - the person registered **before** that 24-hour window. Someone who registers (or is promoted from the waitlist) a few hours before already got a fresh confirmation with the same details, so a reminder right after it would be noise.
+3. For each one, **in the same transaction**: queue the reminder in the outbox and set `reminderSentAt`. Rows are taken with `FOR UPDATE SKIP LOCKED` (as the email worker does), so two API instances never remind the same person twice. At most 500 per run; the outbox sends them in batches of 100.
+4. **The date changes after a reminder** (organizer moves the event): `reminderSentAt` is cleared in the same transaction as the change, so people are reminded again relative to the new date. They also get the "event changed" email from [#6](#idea-6).
+5. **The API was down when the window opened:** the next run catches up, as long as the event hasn't started.
+6. Content: "Mâine: «Titlu»" (or "Astăzi" / "Începe în curând", computed in `APP_TIMEZONE`), date and time, place, link, the calendar links (Part B), and "dacă nu mai poți veni, anulează înscrierea: locul ajunge la primul de pe lista de așteptare" when the event has a waitlist.
+7. People only **waiting** get no reminder: they aren't coming unless promoted, and the promotion email tells them.
+
+### Part B: calendar
+
+8. `GET /events/:id/calendar.ics` (public): a standard iCalendar file that Apple Calendar, Outlook, Google Calendar (import) and phones open directly.
+   - Times in UTC (`…Z`), so every calendar app shows them in the user's own time zone.
+   - `UID` = `<eventId>@eventhub`: re-importing after a change **updates** the entry instead of duplicating it; `SEQUENCE` grows with each change.
+   - Title, place, description, link to the event page.
+   - Headers: `Content-Type: text/calendar; charset=utf-8`, `Content-Disposition: attachment; filename="<titlu>.ics"`.
+   - Built with the [`ics`](https://www.npmjs.com/package/ics) library (decision 4), which handles the format's escaping (commas, semicolons, new lines) and line folding at 75 bytes; both are easy to get wrong by hand.
+9. **"Adaugă în Google Calendar" link:** `https://calendar.google.com/calendar/render?action=TEMPLATE&text=…&dates=…/…&details=…&location=…`, built on the server (as with every other derived value) and returned with the event details as `calendar: { ics, google }`.
+10. **End time:** events have no `endsAt` yet ([#11](#idea-11) adds it), so calendar entries last **2 hours** by default (decision 3). Once `endsAt` exists, the real end is used.
+11. **In emails:** the confirmation, "you got a seat" and reminder emails include "Adaugă în calendar" links (Google + `.ics`). Not attachments: Resend's batch endpoint (used by the outbox) doesn't support attachments, and a link always reflects the current date even after changes.
+
+### Part C: frontend
+
+12. Event page: an "Adaugă în calendar" block with two buttons, **Google Calendar** and **Apple / Outlook (.ics)**, shown to everyone for upcoming events.
+
+### Part D: tests and docs
+
+13. **Unit:**
+    - `.ics` content: required fields, UTC times, `UID`, escaping of `,` `;` `\` and new lines in title/place/description, Romanian diacritics, 2-hour default duration;
+    - Google link: date format, URL encoding of diacritics and `&`;
+    - reminder wording: "Mâine" / "Astăzi" / "Începe în curând" around midnight in Bucharest time (not UTC);
+    - the rule "who gets a reminder" as a pure function (inside the window, registered before it, not yet reminded, not started).
+14. **Database-backed:**
+    - registration 3 days ahead → nothing yet; event moved into the window → reminded once, `reminderSentAt` set; job runs again → nothing new;
+    - registered 2 hours before the start → no reminder; waiting people → no reminder; started event → no reminder;
+    - date moved after the reminder → reminded again;
+    - two job runs at the same time → each person reminded exactly once;
+    - reminder email mentions the waitlist only when there is one.
+15. **End-to-end via HTTP:** download `calendar.ics` (headers + content parse); event details include `calendar.google` / `calendar.ics`; job interval shortened via env for the test → the fake Resend server receives the reminder.
+16. `README.md`: reminders (when, who, what), calendar route, the 2-hour default. In this file, tick item 10 as `[x]`.
+
+### How it affects the project
+
+| Area | Effect |
+|---|---|
+| **Participants** | One reminder about a day before; one-click "add to calendar" on the event page and in emails. |
+| **API** | New public route `GET /events/:id/calendar.ics`; event details gain `calendar: { ics, google }`. |
+| **Database** | One column: `registrations.reminderSentAt` (one migration). |
+| **Emails** | +1 email per registration (if registered more than a day ahead). For big events this adds up against Resend's free 100/day; reminders for one event go out in the same run, so a 300-person event uses 3 days of free quota → a paid plan is the realistic answer at that size. |
+| **Background work** | One more scheduled job every 15 minutes; it does nothing when there's nothing due. |
+| **Dependencies** | `ics` 3.12 (small; pulls in `nanoid`, `runes2`, `yup`). |
+| **Later items** | [#11](#idea-11) `endsAt` replaces the 2-hour default; [#12](#idea-12) profile page can add "no reminder emails"; [#15](#idea-15) check-in can link from the reminder ("arată codul QR la intrare"). |
+| **Risk** | Low–medium. Timing rules around midnight and time zones are the tricky part; they get explicit tests. |
+
+### Files to change
+
+Backend: new `reminders/reminders.service.ts` (job + selection rule, + spec + int-spec), new `events/calendar.ts` (ics + Google link, + spec), `events/events.controller.ts` (`calendar.ics` route), `events/events.service.ts` (calendar links in details; clear `reminderSentAt` on date change), `registrations/registration.entity.ts`, `mail/templates.ts` (reminder + calendar links), `mail/notifications.service.ts`, migration, `app.module.ts` / module wiring, `package.json`. Frontend: `types.ts`, `pages/EventDetailPage.tsx`, `styles.css`. Docs: `README.md`.
+
+### Decisions (2026-11-05): all four recommendations
+
+1. One reminder, about 24 hours before.
+2. Only registered participants.
+3. Calendar entries last 2 hours until [#11](#idea-11) adds an end time.
+4. `.ics` built with the `ics` library.
 
 [↑ Back to table of contents](#table-of-contents)
 

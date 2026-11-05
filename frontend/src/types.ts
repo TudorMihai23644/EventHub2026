@@ -38,6 +38,8 @@ export interface EventItem {
   waitlistPosition: number | null;
   canJoinWaitlist: boolean;
   canLeaveWaitlist: boolean;
+  /** Doar la detaliile unui eveniment (GET /events/:id): link Google Calendar și calea fișierului .ics. */
+  calendar?: { google: string; icsPath: string };
 }
 
 /** O listă de așteptare a participantului (GET /waitlist/me). */

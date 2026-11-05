@@ -19,6 +19,6 @@ export function createMailer(cfg: MailConfig): Mailer {
     Notifications,
     OutboxWorker,
   ],
-  exports: [Notifications],
+  exports: [Notifications, MAIL_CONFIG], // MAIL_CONFIG: și pentru linkurile de calendar din EventsController
 })
 export class MailModule {}

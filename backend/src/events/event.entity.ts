@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { User } from '../users/user.entity';
 import { Registration } from '../registrations/registration.entity';
 import { WaitlistEntry } from '../waitlist/waitlist-entry.entity';
@@ -39,6 +39,10 @@ export class Event {
 
   @CreateDateColumn()
   createdAt: Date;
+
+  /** Ultima modificare; din ea se calculează SEQUENCE în fișierul .ics (calendarele înlocuiesc intrarea veche). */
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt: Date;
 
   // populate de loadRelationCountAndMap, nu sunt coloane
   registeredCount?: number;

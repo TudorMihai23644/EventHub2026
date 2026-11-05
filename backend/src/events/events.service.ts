@@ -116,7 +116,11 @@ export class EventsService {
       const oldCapacity = event.capacity;
       if (dto.startsAt !== undefined) {
         const next = new Date(dto.startsAt);
-        if (next.getTime() !== event.startsAt.getTime()) event.startsAt = this.parseFutureDate(dto.startsAt);
+        if (next.getTime() !== event.startsAt.getTime()) {
+          event.startsAt = this.parseFutureDate(dto.startsAt);
+          // data nouă: memento-ul se trimite din nou, raportat la noua dată
+          await m.update(Registration, { eventId: id }, { reminderSentAt: null });
+        }
       }
       if (dto.capacity !== undefined) {
         const taken = await m.count(Registration, { where: { eventId: id } });

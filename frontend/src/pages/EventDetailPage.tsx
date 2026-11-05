@@ -6,6 +6,7 @@ import { useAuth } from '../auth';
 import { EventItem } from '../types';
 import { DateTile, Loading, errMsg, fmtDate, seatsLabel, useToast } from '../ui';
 import { ResendVerificationButton } from './VerifyEmailPage';
+import { API_URL } from '../config';
 
 export default function EventDetailPage() {
   const { id } = useParams();
@@ -115,6 +116,17 @@ export default function EventDetailPage() {
         )}
         {ev.canEdit && <Link className="btn" to={`/organizator/${ev.id}/editare`}>Editează evenimentul</Link>}
       </div>
+
+      {ev.calendar && ev.status !== 'PAST' && (
+        <div className="panel calendar">
+          <strong>Adaugă în calendar</strong>
+          <div className="actions">
+            <a className="btn ghost" href={ev.calendar.google} target="_blank" rel="noopener noreferrer">Google Calendar</a>
+            <a className="btn ghost" href={`${API_URL}${ev.calendar.icsPath}`} download>Apple / Outlook (.ics)</a>
+          </div>
+          <p className="muted small">Fișierul .ics se deschide în aplicația de calendar a telefonului sau a calculatorului.</p>
+        </div>
+      )}
     </article>
   );
 }

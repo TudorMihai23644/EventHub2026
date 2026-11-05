@@ -1,4 +1,5 @@
 import { MailConfig } from './mail.config';
+import { googleCalendarUrl, icsPath } from '../events/calendar';
 
 // Conținutul emailurilor: funcții pure, fără bază de date, ușor de testat.
 // Tot ce scrie un utilizator (titlu, locație, nume) trece prin escapeHtml.
@@ -16,7 +17,7 @@ export interface EventInfo {
   location: string;
 }
 
-type Cfg = Pick<MailConfig, 'appUrl' | 'timeZone'>;
+type Cfg = Pick<MailConfig, 'appUrl' | 'timeZone' | 'apiUrl'>;
 
 export function escapeHtml(value: string): string {
   return value
@@ -41,6 +42,7 @@ interface Body {
   lines: string[]; // text simplu, câte un paragraf
   facts?: [string, string][]; // etichetă → valoare, text simplu
   button?: { label: string; url: string };
+  links?: { label: string; url: string }[]; // linkuri secundare, sub buton (ex. „Adaugă în calendar”)
 }
 
 function render(cfg: Cfg, subject: string, b: Body): EmailContent {
@@ -50,6 +52,11 @@ function render(cfg: Cfg, subject: string, b: Body): EmailContent {
     .join('');
   const button = b.button
     ? `<p style="margin:22px 0 6px"><a href="${escapeHtml(b.button.url)}" style="display:inline-block;background:#ff1030;color:#000000;font-weight:800;text-decoration:none;padding:12px 22px;border-radius:999px">${escapeHtml(b.button.label)}</a></p>`
+    : '';
+  const links = b.links?.length
+    ? `<p style="margin:14px 0 0;font-size:14px;color:#a1a1ab">${b.links
+        .map((l) => `<a href="${escapeHtml(l.url)}" style="color:#ff4d63">${escapeHtml(l.label)}</a>`)
+        .join(' &nbsp;·&nbsp; ')}</p>`
     : '';
   const html = `<!doctype html><html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(subject)}</title></head>
 <body style="margin:0;background:#000000;color:#d6d6dc;font-family:Segoe UI,Arial,sans-serif;font-size:16px">
@@ -61,6 +68,7 @@ function render(cfg: Cfg, subject: string, b: Body): EmailContent {
 ${b.lines.map(p).join('\n')}
 ${facts ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 4px;font-size:15px">${facts}</table>` : ''}
 ${button}
+${links}
 </td></tr></table>
 <p style="margin:16px 0 0;font-size:12px;color:#6d6d77">Primești acest email pentru că ai un cont EventHub.</p>
 </td></tr></table></body></html>`;
@@ -70,6 +78,7 @@ ${button}
     ...b.lines.flatMap((l) => [l, '']),
     ...(b.facts ?? []).map(([k, v]) => `${k}: ${v}`),
     ...(b.button ? ['', `${b.button.label}: ${b.button.url}`] : []),
+    ...(b.links ?? []).map((l) => `${l.label}: ${l.url}`),
     '',
     '— EventHub',
   ].join('\n');
@@ -81,6 +90,22 @@ const eventFacts = (cfg: Cfg, e: EventInfo): [string, string][] => [
   ['Unde', e.location],
 ];
 
+/** „Adaugă în calendar”: Google + fișier .ics (doar dacă știm adresa publică a API-ului). */
+function calendarLinks(cfg: Cfg, e: EventInfo) {
+  const links = [{ label: 'Adaugă în Google Calendar', url: googleCalendarUrl(e, cfg) }];
+  if (cfg.apiUrl) links.push({ label: 'Apple / Outlook (.ics)', url: `${cfg.apiUrl}${icsPath(e.id)}` });
+  return links;
+}
+
+// Ziua calendaristică (YYYY-MM-DD) în fusul orar dat; 'en-CA' formatează exact așa.
+const dayIn = (d: Date, timeZone: string) => new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+
+/** „Începe în curând” (≤ 3 ore), „Astăzi”, „Mâine”, socotit pe zilele din fusul orar al aplicației, nu din UTC. */
+export function reminderWhen(start: Date, now: Date, timeZone: string): 'Începe în curând' | 'Astăzi' | 'Mâine' {
+  if (start.getTime() - now.getTime() <= 3 * 3_600_000) return 'Începe în curând';
+  return dayIn(start, timeZone) === dayIn(now, timeZone) ? 'Astăzi' : 'Mâine';
+}
+
 // ---------- pentru participanți ----------
 
 export function registrationConfirmed(cfg: Cfg, d: { name: string; event: EventInfo }): EmailContent {
@@ -89,6 +114,22 @@ export function registrationConfirmed(cfg: Cfg, d: { name: string; event: EventI
     lines: [`Bună, ${d.name}! Înscrierea ta a fost confirmată.`],
     facts: eventFacts(cfg, d.event),
     button: { label: 'Vezi evenimentul', url: eventUrl(cfg, d.event.id) },
+    links: calendarLinks(cfg, d.event),
+  });
+}
+
+/** Memento-ul de cu o zi înainte. `hasWaitlist`: îndemnul la anulare spune că locul ajunge la cineva care așteaptă. */
+export function eventReminder(cfg: Cfg, d: { name: string; event: EventInfo; hasWaitlist: boolean; now?: Date }): EmailContent {
+  const when = reminderWhen(d.event.startsAt, d.now ?? new Date(), cfg.timeZone);
+  const cancelHint = d.hasWaitlist
+    ? 'Dacă nu mai poți veni, anulează înscrierea din pagina evenimentului: locul ajunge imediat la primul de pe lista de așteptare.'
+    : 'Dacă nu mai poți veni, anulează înscrierea din pagina evenimentului, ca locul să rămână liber pentru altcineva.';
+  return render(cfg, `${when}: „${d.event.title}”`, {
+    heading: `${when}: „${d.event.title}”`,
+    lines: [`Bună, ${d.name}! Îți amintim de evenimentul la care ești înscris.`, cancelHint],
+    facts: eventFacts(cfg, d.event),
+    button: { label: 'Vezi evenimentul', url: eventUrl(cfg, d.event.id) },
+    links: calendarLinks(cfg, d.event),
   });
 }
 
@@ -160,6 +201,7 @@ export function waitlistPromoted(cfg: Cfg, d: { name: string; event: EventInfo }
     ],
     facts: eventFacts(cfg, d.event),
     button: { label: 'Vezi evenimentul', url: eventUrl(cfg, d.event.id) },
+    links: calendarLinks(cfg, d.event),
   });
 }
 
