@@ -37,9 +37,9 @@ Tabelele se creează prin migrări, rulate automat la pornirea API-ului (vezi [M
 
 Nicio valoare secretă nu este în cod sau în `docker-compose.yml`. Sunt în `secrets/`
 (`db_password.txt`, `jwt_secret.txt`, `organizer_invite_code.txt`), ignorat de Git. Docker Compose le
-Lrdeclară în secțiunea `secrets:` și le montează în containere ca fișiere în `/run/secrets`,
+declară în secțiunea `secrets:` și le montează în containere ca fișiere în `/run/secrets`,
 deci nu apar în `docker inspect`, în imagini sau în `docker compose config`. Backend-ul le citește prin
-Lr`NUME_FILE` (vezi `backend/src/common/secrets.ts`) și nu pornește dacă lipsește `JWT_SECRET` sau parola bazei de date.
+`NUME_FILE` (vezi `backend/src/common/secrets.ts`) și nu pornește dacă lipsește `JWT_SECRET` sau parola bazei de date.
 PostgreSQL este expus doar pe `127.0.0.1`. Frontend-ul nu conține secrete: variabilele `VITE_*` ajung în browser, deci acolo se pune doar adresa publică a API-ului.
 
 Dacă schimbi `db_password.txt` după ce baza a fost creată, rulează `docker compose down -v` (șterge datele locale), altfel parola din volum rămâne cea veche.
