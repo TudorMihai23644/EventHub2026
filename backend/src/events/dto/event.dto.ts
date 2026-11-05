@@ -1,5 +1,6 @@
 import { Trim } from '../../common/trim';
 import { PartialType } from '@nestjs/mapped-types';
+import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsISO8601, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class CreateEventDto {
@@ -32,10 +33,30 @@ export class CreateEventDto {
 
 export class UpdateEventDto extends PartialType(CreateEventDto) {}
 
+export const PAGE_SIZE_DEFAULT = 20;
+export const PAGE_SIZE_MAX = 50;
+
 export class ListEventsQuery {
   @IsOptional()
   @IsString()
+  @MaxLength(100, { message: 'Căutarea poate avea maximum 100 de caractere.' })
   search?: string;
+
+  // Parametrii din URL sosesc ca text; @Type îi transformă în numere înainte de validare.
+  // @IsInt stă ultimul (lângă proprietate): class-validator îl raportează primul, deci pentru „abc”
+  // utilizatorul vede „trebuie să fie un număr întreg”, nu „minimul este 1”.
+  @IsOptional()
+  @Type(() => Number)
+  @Min(1, { message: 'Pagina minimă este 1.' })
+  @IsInt({ message: 'Pagina trebuie să fie un număr întreg.' })
+  page: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @Max(PAGE_SIZE_MAX, { message: `Limita maximă este ${PAGE_SIZE_MAX} de evenimente pe pagină.` })
+  @Min(1, { message: 'Limita minimă este 1.' })
+  @IsInt({ message: 'Limita trebuie să fie un număr întreg.' })
+  limit: number = PAGE_SIZE_DEFAULT;
 
   @IsOptional()
   @IsIn(['asc', 'desc'])

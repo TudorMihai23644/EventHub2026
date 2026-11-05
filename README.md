@@ -49,7 +49,19 @@ Dacă schimbi `db_password.txt` după ce baza a fost creată, rulează `docker c
 ```bash
 cd backend && npm test
 ```
-Teste unitare pentru regulile de înscriere (duplicat, capacitate, eveniment trecut, succes, eveniment inexistent), anulare (după începere, neînscris, lock), modificarea capacității (sub numărul de înscriși, alt organizator, lock), înregistrarea organizatorilor (cod lipsă, greșit, neconfigurat, corect), limitarea cererilor (429 după limită, IP + email, rute nelimitate, comutatorul Swagger) și setările bazei de date (fără `synchronize`, migrări, `DB_MIGRATIONS_RUN`).
+Teste unitare pentru regulile de înscriere (duplicat, capacitate, eveniment trecut, succes, eveniment inexistent), anulare (după începere, neînscris, lock), modificarea capacității (sub numărul de înscriși, alt organizator, lock), înregistrarea organizatorilor (cod lipsă, greșit, neconfigurat, corect), limitarea cererilor (429 după limită, IP + email, rute nelimitate, comutatorul Swagger) , setările bazei de date (fără `synchronize`, migrări, `DB_MIGRATIONS_RUN`), validarea parametrilor de listare și `escapeLike`.
+
+**Teste de integrare** (pe un PostgreSQL real, cu schema creată de migrări; au nevoie de Docker):
+
+```bash
+cd backend
+npm run test:db:up     # pornește un PostgreSQL temporar pe 127.0.0.1:55432 (baza eventhub_test)
+npm run test:int       # paginare, filtrul de locuri libere, căutare cu % și _, rezumatul organizatorului
+npm run test:db:down   # oprește și șterge containerul
+```
+
+Testele de integrare șterg toate tabelele din baza de test și refuză să ruleze pe o bază al cărei nume nu conține „test”.
+Altă bază: `TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_USER`, `TEST_DB_PASSWORD`, `TEST_DB_NAME`.
 
 ## API
 
@@ -65,7 +77,7 @@ Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt def
 | POST | `/auth/login` | public | 200 / 401 / 429 (5/min per cont + IP, 30/min per IP) |
 | POST | `/auth/logout` | autentificat | 204; JWT este stateless, clientul șterge token-ul |
 | GET | `/auth/me` | autentificat | |
-| GET | `/events?search=&sort=asc\|desc&available=true` | public | doar evenimente viitoare |
+| GET | `/events?search=&sort=asc\|desc&available=true&page=1&limit=20` | public | doar evenimente viitoare; răspuns paginat `{ items, total, page, limit, totalPages }`; `limit` maxim 50, `search` maxim 100 de caractere (`%` și `_` se caută literal); 400 pentru valori invalide |
 | GET | `/events/:id/registrations` | organizator proprietar | lista participanților înscriși |
 | GET | `/events/:id` | public | include `registeredCount`, `availableSeats` |
 | GET | `/events/mine` | organizator | dashboard cu numărul de înscrieri |

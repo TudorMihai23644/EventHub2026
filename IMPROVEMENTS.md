@@ -39,7 +39,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 | [2](#idea-2) | [x] | Rate limiting (`@nestjs/throttler`) + `helmet` + Swagger only outside production | Security | S | |
 | [3](#idea-3) | ❌ | ~~Delete dead frontend code~~ – cancelled, replaced by [#18](#idea-18) | Cleanup | XS | |
 | [4](#idea-4) | [x] | TypeORM migrations instead of `synchronize: true` | Production | S | |
-| [5](#idea-5) | [ ] | Pagination on `GET /events` + `available` filter in SQL + single aggregate query for `summary` | Performance | S–M | |
+| [5](#idea-5) | [x] | Pagination on `GET /events` + `available` filter in SQL + single aggregate query for `summary` + safe search | Performance | M | 4 |
 | [6](#idea-6) | [ ] | Transactional email (Resend): registration confirmation, event changed/deleted notice | Feature + API | M | |
 | [7](#idea-7) | [ ] | Password reset + email verification | Feature | M | 6 |
 | [8](#idea-8) | [ ] | Short access token + refresh token in httpOnly cookie, server-side logout/revocation | Security | M | |
@@ -342,9 +342,114 @@ With migrations, every schema change is a `.ts` file in git that you read before
 <a id="idea-5"></a>
 ## 5. Pagination + `available` filter in SQL + aggregate summary
 
-**Status:** idea · plan not written yet
+**Status:** ✅ done 2026-11-05 · 65/65 unit tests + 12/12 integration tests pass, backend and frontend compile, 15/15 end-to-end API checks pass · browser check (step 15) still to do · **Type:** Performance · **Effort:** M (was S–M: adds the first database-backed tests)
 
-`GET /events` loads every upcoming event with no limit, and the "available seats" filter runs in memory after the query (`events.service.ts`). Add `?page=&limit=` and move the filter into SQL (`HAVING`). `summary()` loads every event just to count them; replace it with one aggregate query. Also escape `%` and `_` in search (or move to Postgres full-text search).
+**Files changed:** `backend/src/events/dto/event.dto.ts`, `backend/src/events/events.service.ts`, `backend/src/events/event.entity.ts`, `backend/src/registrations/registration.entity.ts`, new `backend/src/common/escape-like.ts` + `.spec.ts`, new `backend/src/common/paginated.ts`, new `backend/src/events/dto/event.dto.spec.ts`, new `backend/src/database/migrations/1793884528097-AddEventIndexes.ts`, new `backend/src/events/events.service.int-spec.ts`, new `backend/src/test/int-db.ts`, new `backend/jest.int.config.js`, `backend/package.json` (`test:int`, `test:db:up`, `test:db:down`), `frontend/src/types.ts`, `frontend/src/pages/EventsPage.tsx`, `frontend/src/styles.css` (`.more`), `README.md`.
+
+**Checks:**
+
+| Check | Result |
+|---|---|
+| Integration tests (real Postgres, schema from migrations) | ✅ 12/12: pages of 20/20/5 with no duplicates (incl. 15 events at the same time), empty page past the end, desc sort, past events excluded, seat filter excludes full events from items **and** total, `%`/`_`/`\` searched literally, case-insensitive, `isRegistered` per viewer, summary numbers |
+| Do the tests catch the bug? | ✅ with `escapeLike` removed on purpose, the `%` and `_` tests fail |
+| `migration:check` with the new `@Index`es | ✅ no changes |
+| End-to-end through the real HTTP API (25 events created via `POST /events`) | ✅ 15/15: response shape, page sizes, defaults, seat filter, `100%` search, participant flags, four 400 cases with Romanian field messages, summary |
+| Frontend `npm run build` (TypeScript + Vite) | ✅ |
+
+**Differences from the plan:**
+- A unit test caught a real bug: for `?page=abc` the API answered "Pagina minimă este 1." because the error formatter shows the first failing rule and class-validator reported `@Min` first. Fixed by putting `@IsInt` next to the property; now it answers "Pagina trebuie să fie un număr întreg.".
+- Added `npm run test:db:up` / `test:db:down` to start and stop the test Postgres, and a safety check: integration tests refuse to run on a database whose name doesn't contain "test" (they delete every table).
+- "Load more" also skips an event it already shows, in case the list shifted between pages (e.g. an event filled up while "Doar cu locuri libere" is on).
+- The search box got `maxLength={100}`, matching the API limit.
+
+Four connected changes to how events are read. One API response changes shape; the frontend events page is updated in the same change.
+
+### Problems (checked 2026-11-05)
+
+1. **No pagination.** `GET /events` returns *every* upcoming event, and for each response it also loads registration counts and the viewer's registrations. With 5,000 events, every visit to the home page (and every search keystroke, after the 250 ms debounce) sends all 5,000.
+2. **"Doar cu locuri libere" is filtered in JavaScript**, after the query (`views.filter(e => e.availableSeats > 0)`). That already wastes work, and with pagination it would be **wrong**: a page of 20 could come back with 3 items, and the total would count full events too. It has to move into SQL.
+3. **`summary()` loads all of an organizer's events** with their counts, only to compute three numbers in JavaScript.
+4. **Search treats `%` and `_` as wildcards.** They go straight into `ILIKE '%…%'`, so searching `100%` or `_` matches almost everything. There's also no length limit on `search`.
+
+Also found: `registrations` has no index on `eventId` (the `UNIQUE(userId, eventId)` index starts with `userId`, so it doesn't help), and `events` has no index on `startsAt`. Every count of registrations per event and every "upcoming, sorted by date" query scans the whole table.
+
+### Part A: pagination on `GET /events`
+
+1. `ListEventsQuery` (`events/dto/event.dto.ts`) gets:
+   - `page`: integer ≥ 1, default 1;
+   - `limit`: integer 1–50, default 20;
+   - `search`: max 100 characters.
+   Query strings arrive as text, so `@Type(() => Number)` converts them. Invalid values → 400 with a Romanian message per field, like the other forms.
+2. **Response shape changes** from an array to:
+   ```json
+   { "items": [ /* events, same fields as today */ ], "total": 134, "page": 2, "limit": 20, "totalPages": 7 }
+   ```
+   An object is clearer than an array plus a total in a header, and it doesn't need extra CORS settings. The only consumer is `EventsPage`, updated in Part E.
+3. `findUpcoming` uses `skip`/`take` + `getManyAndCount()` (items and total come from the database). Order by `startsAt`, then `id`, so events with the same start time don't jump between pages.
+4. The viewer's `isRegistered` / `canRegister` flags are computed only for the 20 events on the page, not for all of them.
+5. Not paginated for now: `GET /events/mine` (an organizer has few events) and `GET /registrations/me`. Noted for later if needed.
+
+### Part B: "available seats" filter in SQL
+
+6. When `available=true`: `AND e.capacity > (SELECT COUNT(*) FROM registrations r WHERE r."eventId" = e.id)`. The filtered events never leave the database, so `total` and `totalPages` are correct.
+7. **Indexes, through a migration** (the first real use of [#4](#idea-4)): `@Index()` on `Registration.eventId` and `Event.startsAt`, then `npm run migration:generate -- src/database/migrations/AddEventIndexes`. Read the generated file, check that `migration:check` passes.
+
+### Part C: `summary()` as one SQL query
+
+8. One query instead of loading everything:
+   ```sql
+   SELECT COUNT(DISTINCT e.id)                                      AS "eventsCount",
+          COUNT(DISTINCT e.id) FILTER (WHERE e."startsAt" > now())  AS "upcomingCount",
+          COUNT(r.id)                                               AS "totalRegistrations"
+   FROM events e LEFT JOIN registrations r ON r."eventId" = e.id
+   WHERE e."organizerId" = :id
+   ```
+   Postgres returns counts as text, so they're converted with `Number()`. The response `{ eventsCount, upcomingCount, totalRegistrations }` stays identical.
+   Small behaviour detail: "upcoming" now uses the database clock (`now()`), the same as the event list already does, instead of the API server's clock.
+
+### Part D: safe search
+
+9. New helper `escapeLike()` in `common/`: escapes `\`, `%` and `_` before building `%…%`, so `100%` searches for the text "100%". Postgres `ILIKE` uses `\` as its escape character by default.
+10. Full-text search (word stems, ranking, Romanian diacritics) stays out of scope; it's a separate idea if search ever needs to be smarter.
+
+### Part E: frontend events page
+
+11. `types.ts`: a generic `Paginated<T>` type (`items`, `total`, `page`, `limit`, `totalPages`).
+12. `EventsPage.tsx`:
+    - a **"Încarcă mai multe"** button under the list (adds the next page). On phones it's simpler than page numbers, and it matches how the list already scrolls;
+    - a line "Afișate 20 din 134 evenimente";
+    - changing the search, sort or seats filter goes back to page 1;
+    - a guard against out-of-order responses: if an older request finishes after a newer one (slow network while typing), its result is ignored.
+
+### Part F: tests and docs
+
+13. **Unit tests:** `escapeLike()` (`%`, `_`, `\`, normal text); `ListEventsQuery` validation (page 0 → 400, limit 51 → 400, `"2"` → 2, defaults, search over 100 characters → 400).
+14. **New: database-backed tests** (`*.int-spec.ts`, run with `npm run test:int`). The service's SQL can't be meaningfully tested with mocks, so these run against the throwaway Postgres used in idea 4, with the schema built by the real migrations:
+    - 45 events → page 1 has 20, page 3 has 5, `total` 45, `totalPages` 3, no event on two pages;
+    - `available=true` with some full events → full ones excluded **and** `total` counts only the rest;
+    - search `100%` finds only the event titled "100% Jazz"; `_` matches nothing unexpected;
+    - past events never appear;
+    - `summary()` returns the same numbers as the old code for a mixed set (past/future, with and without registrations).
+    `npm test` stays fast and needs no database; `test:int` is separate and goes into CI in [#13](#idea-13).
+15. Manual check in the browser: search, sort, "Doar cu locuri libere", "Încarcă mai multe", and the count line.
+16. `README.md`: the `GET /events` row (new params, new response shape), a note on `npm run test:int`. In this file, tick item 5 as `[x]`.
+
+### How it affects the project
+
+| Area | Effect |
+|---|---|
+| **API** | **Breaking change for `GET /events`:** returns `{ items, total, page, limit, totalPages }` instead of an array. New optional params `page`, `limit`; invalid values → 400. `search` over 100 characters → 400. `GET /events/:id`, `/events/mine`, `/events/mine/summary` keep the same shape. |
+| **Frontend** | Events page gets "Încarcă mai multe" and "Afișate X din Y". No other page changes. |
+| **Search** | `%` and `_` are searched literally. |
+| **Database** | One migration adding 2 indexes (`registrations.eventId`, `events.startsAt`). No data changes. |
+| **Performance** | Home page and search send at most 20 events. Seat filter and summary run in the database, using the new indexes. |
+| **Tests** | First database-backed test suite (`npm run test:int`, needs Docker), reusable for later ideas. |
+| **Later items** | [#9](#idea-9) waitlist and [#12](#idea-12) analytics reuse the same SQL-count pattern and the integration tests; [#11](#idea-11) categories add one more filter to the same query; [#18](#idea-18) neon theme will style the "load more" button. |
+| **Risk** | Low–medium. The response-shape change is the main risk; it's covered by TypeScript on the frontend, the integration tests and the manual check. |
+
+### Files to change
+
+`backend/src/events/dto/event.dto.ts`, `backend/src/events/events.service.ts`, `backend/src/events/event.entity.ts` (`@Index`), `backend/src/registrations/registration.entity.ts` (`@Index`), new `backend/src/common/escape-like.ts` + spec, new `backend/src/events/dto/event.dto.spec.ts`, new migration `…-AddEventIndexes.ts`, new `backend/src/events/events.service.int-spec.ts` + its Jest config, `backend/package.json` (`test:int`), `frontend/src/types.ts`, `frontend/src/pages/EventsPage.tsx`, `README.md`.
 
 [↑ Back to table of contents](#table-of-contents)
 
@@ -532,4 +637,5 @@ Make the unused "Pure Black & Red Neon 4K" design the app's real look, instead o
 - 2026-11-05 – Add `.gitattributes` (`* text=auto eol=lf`) – this machine has `core.autocrlf=true`, so a fresh checkout turns files into CRLF; `setup-secrets.sh` then fails on Mac/Linux (`sh\r: not found`).
 - 2026-11-05 – `tsconfig.build.json` that excludes `*.spec.ts` – `nest build` currently compiles the test files into `dist/` and they end up in the Docker image.
 - 2026-11-05 – `createdAt` columns are `TIMESTAMP` without time zone (only `startsAt` has one) – consider a migration to `timestamptz` for consistency.
+- 2026-11-05 – **Bug:** empty "Capacitate maximă" in the event form (sent as `null`) or a non-number gets the message "Capacitatea maximă este 100.000 de locuri." – same cause as the `?page=abc` bug fixed in [#5](#idea-5): the first failing rule is shown, and `@Max` is reported first. Fix: put `@IsInt` directly above `capacity` in `CreateEventDto`, plus a test. Checked with a probe: `null` and `"abc"` → the "maximum" message; `1.5` → integer message; `0` → minimum message.
 - 2026-11-05 – Update outdated dependencies that `npm install` warns about (`glob`, `inflight`, `uuid`, pulled in by other packages), as part of [#13](#idea-13).

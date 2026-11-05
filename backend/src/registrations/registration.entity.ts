@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, Unique } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, Unique } from 'typeorm';
 import { User } from '../users/user.entity';
 import { Event } from '../events/event.entity';
 
@@ -11,6 +11,7 @@ export class Registration {
   @Column({ type: 'uuid' })
   userId: string;
 
+  @Index() // numărarea înscrierilor pe eveniment (UNIQUE(userId, eventId) începe cu userId, deci nu ajută)
   @Column({ type: 'uuid' })
   eventId: string;
 

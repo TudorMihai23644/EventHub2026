@@ -3,9 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { Event } from './event.entity';
 import { Registration } from '../registrations/registration.entity';
-import { CreateEventDto, ListEventsQuery, UpdateEventDto } from './dto/event.dto';
+import { CreateEventDto, ListEventsQuery, PAGE_SIZE_DEFAULT, UpdateEventDto } from './dto/event.dto';
 import { AuthUser } from '../auth/roles';
 import { buildEventView } from './event-view';
+import { escapeLike } from '../common/escape-like';
+import { paginated } from '../common/paginated';
 
 @Injectable()
 export class EventsService {
@@ -34,14 +36,23 @@ export class EventsService {
     return events.map((e) => buildEventView(e, viewer, registered.has(e.id)));
   }
 
+  // Paginat; toate filtrele ruleazÄƒ Ã®n baza de date, deci `total` numÄƒrÄƒ exact ce corespunde filtrelor.
   async findUpcoming(q: ListEventsQuery, viewer?: AuthUser) {
+    const page = q.page ?? 1;
+    const limit = q.limit ?? PAGE_SIZE_DEFAULT;
     const qb = this.base().where('e.startsAt > now()');
-    if (q.search?.trim()) {
-      qb.andWhere('(e.title ILIKE :s OR e.location ILIKE :s)', { s: `%${q.search.trim()}%` });
+    const search = q.search?.trim();
+    if (search) {
+      qb.andWhere('(e.title ILIKE :s OR e.location ILIKE :s)', { s: `%${escapeLike(search)}%` });
     }
-    qb.orderBy('e.startsAt', q.sort === 'desc' ? 'DESC' : 'ASC');
-    const views = await this.views(await qb.getMany(), viewer);
-    return q.available === 'true' ? views.filter((e) => e.availableSeats > 0) : views;
+    if (q.available === 'true') {
+      qb.andWhere('e.capacity > (SELECT COUNT(*) FROM registrations r WHERE r."eventId" = e.id)');
+    }
+    // `id` ca al doilea criteriu: evenimentele cu aceeaÈ™i orÄƒ nu sar Ã®ntre pagini.
+    const dir = q.sort === 'desc' ? 'DESC' : 'ASC';
+    qb.orderBy('e.startsAt', dir).addOrderBy('e.id', dir).skip((page - 1) * limit).take(limit);
+    const [events, total] = await qb.getManyAndCount();
+    return paginated(await this.views(events, viewer), total, page, limit);
   }
 
   async findMine(user: AuthUser) {
@@ -52,19 +63,27 @@ export class EventsService {
     return this.views(events, user);
   }
 
+  // O singurÄƒ interogare agregatÄƒ, fÄƒrÄƒ a Ã®ncÄƒrca evenimentele.
   async summary(organizerId: string) {
-    const events = await this.base().where('e.organizerId = :id', { id: organizerId }).getMany();
-    const now = Date.now();
+    const row = await this.repo
+      .createQueryBuilder('e')
+      .leftJoin('e.registrations', 'r')
+      .select('COUNT(DISTINCT e.id)', 'eventsCount')
+      .addSelect('COUNT(DISTINCT e.id) FILTER (WHERE e.startsAt > now())', 'upcomingCount')
+      .addSelect('COUNT(r.id)', 'totalRegistrations')
+      .where('e.organizerId = :id', { id: organizerId })
+      .getRawOne<{ eventsCount: string; upcomingCount: string; totalRegistrations: string }>();
+    // PostgreSQL Ã®ntoarce COUNT ca text (bigint)
     return {
-      eventsCount: events.length,
-      upcomingCount: events.filter((e) => new Date(e.startsAt).getTime() > now).length,
-      totalRegistrations: events.reduce((sum, e) => sum + (e.registeredCount ?? 0), 0),
+      eventsCount: Number(row?.eventsCount ?? 0),
+      upcomingCount: Number(row?.upcomingCount ?? 0),
+      totalRegistrations: Number(row?.totalRegistrations ?? 0),
     };
   }
 
   async findOne(id: string, viewer?: AuthUser) {
     const event = await this.base().where('e.id = :id', { id }).getOne();
-    if (!event) throw new NotFoundException('Evenimentul nu a fost găsit.');
+    if (!event) throw new NotFoundException('Evenimentul nu a fost gÄƒsit.');
     return (await this.views([event], viewer))[0];
   }
 
@@ -74,8 +93,8 @@ export class EventsService {
     return this.findOne(saved.id, user);
   }
 
-  // Tranzacție + același lock ca la înscriere: o înscriere simultană fie este
-  // numărată înainte de verificarea capacității, fie vede deja noua capacitate.
+  // TranzacÈ›ie + acelaÈ™i lock ca la Ã®nscriere: o Ã®nscriere simultanÄƒ fie este
+  // numÄƒratÄƒ Ã®nainte de verificarea capacitÄƒÈ›ii, fie vede deja noua capacitate.
   async update(user: AuthUser, id: string, dto: UpdateEventDto) {
     await this.dataSource.transaction(async (m) => {
       const event = this.assertOwner(
@@ -89,7 +108,7 @@ export class EventsService {
       if (dto.capacity !== undefined) {
         const taken = await m.count(Registration, { where: { eventId: id } });
         if (dto.capacity < taken) {
-          throw this.bad(`Capacitatea nu poate fi sub numărul de înscriși (${taken}).`, 'capacity');
+          throw this.bad(`Capacitatea nu poate fi sub numÄƒrul de Ã®nscriÈ™i (${taken}).`, 'capacity');
         }
         event.capacity = dto.capacity;
       }
@@ -125,9 +144,9 @@ export class EventsService {
   }
 
   private assertOwner(event: Event | null, userId: string) {
-    if (!event) throw new NotFoundException('Evenimentul nu a fost găsit.');
+    if (!event) throw new NotFoundException('Evenimentul nu a fost gÄƒsit.');
     if (event.organizerId !== userId) {
-      throw new ForbiddenException('Doar organizatorul evenimentului îl poate modifica.');
+      throw new ForbiddenException('Doar organizatorul evenimentului Ã®l poate modifica.');
     }
     return event;
   }
@@ -139,7 +158,7 @@ export class EventsService {
   private parseFutureDate(value: string) {
     const d = new Date(value);
     if (Number.isNaN(d.getTime()) || d.getTime() <= Date.now()) {
-      throw this.bad('Data evenimentului trebuie să fie în viitor.', 'startsAt');
+      throw this.bad('Data evenimentului trebuie sÄƒ fie Ã®n viitor.', 'startsAt');
     }
     return d;
   }

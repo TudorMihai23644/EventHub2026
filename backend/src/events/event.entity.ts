@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 import { User } from '../users/user.entity';
 import { Registration } from '../registrations/registration.entity';
 
@@ -13,6 +13,7 @@ export class Event {
   @Column({ type: 'text' })
   description: string;
 
+  @Index() // lista de evenimente viitoare filtrează și sortează după dată
   @Column({ type: 'timestamptz' })
   startsAt: Date;
 
