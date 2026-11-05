@@ -1,34 +1,114 @@
 import { timingSafeEqual } from 'crypto';
-import { ConflictException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { DataSource, IsNull } from 'typeorm';
 import { secret } from '../common/secrets';
 import { UsersService } from '../users/users.service';
-import { User } from '../users/user.entity';
-import { LoginDto, RegisterDto } from './dto/auth.dto';
+import { User, publicUser } from '../users/user.entity';
+import { Notifications } from '../mail/notifications.service';
+import { TokensService } from './tokens.service';
+import { ForgotPasswordDto, LoginDto, RegisterDto, ResetPasswordDto, VerifyEmailDto } from './dto/auth.dto';
+
+// Același răspuns indiferent dacă există sau nu un cont: formularul nu dezvăluie ce adrese au cont.
+export const FORGOT_MESSAGE = 'Dacă există un cont cu această adresă, vei primi un email cu instrucțiuni.';
+// Un singur mesaj pentru link inexistent / expirat / deja folosit: nimic de ghicit.
+export const INVALID_RESET = 'Linkul de resetare nu mai este valabil. Cere unul nou.';
+export const INVALID_VERIFY = 'Linkul de confirmare nu mai este valabil. Cere unul nou.';
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly users: UsersService, private readonly jwt: JwtService) {}
+  constructor(
+    private readonly users: UsersService,
+    private readonly jwt: JwtService,
+    private readonly dataSource: DataSource,
+    private readonly tokens: TokensService,
+    private readonly notifications: Notifications,
+  ) {}
 
   async register(dto: RegisterDto) {
     if (dto.role === 'ORGANIZER') this.assertInviteCode(dto.inviteCode);
-    const email = dto.email.trim().toLowerCase();
+    const email = normalizeEmail(dto.email);
     if (await this.users.findByEmailWithPassword(email)) {
       const message = 'Există deja un cont cu această adresă de email.';
       throw new ConflictException({ statusCode: 409, error: 'Conflict', message, fields: { email: message } });
     }
     const passwordHash = await bcrypt.hash(dto.password, 10);
-    const user = await this.users.create({ name: dto.name.trim(), email, passwordHash, role: dto.role });
+    // Contul și emailul de confirmare: împreună sau deloc.
+    const user = await this.dataSource.transaction(async (m) => {
+      const u = await m.save(m.create(User, { name: dto.name.trim(), email, passwordHash, role: dto.role }));
+      const token = await this.tokens.issue(m, u.id, 'EMAIL_VERIFY');
+      await this.notifications.emailVerification(m, u, token);
+      return u;
+    });
     return this.session(user);
   }
 
   async login(dto: LoginDto) {
-    const user = await this.users.findByEmailWithPassword(dto.email.trim().toLowerCase());
+    const user = await this.users.findByEmailWithPassword(normalizeEmail(dto.email));
     if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
       throw new UnauthorizedException('Email sau parolă incorecte.');
     }
     return this.session(user);
+  }
+
+  async me(userId: string) {
+    const user = await this.users.findById(userId);
+    if (!user) throw new NotFoundException('Contul nu mai există.');
+    return publicUser(user);
+  }
+
+  /** Trimite un link de resetare dacă există contul. Răspunsul e mereu același. */
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const user = await this.users.findByEmailWithPassword(normalizeEmail(dto.email));
+    if (user) {
+      await this.dataSource.transaction(async (m) => {
+        const token = await this.tokens.issue(m, user.id, 'PASSWORD_RESET');
+        await this.notifications.passwordReset(m, user, token);
+      });
+    }
+    return { message: FORGOT_MESSAGE };
+  }
+
+  /** Parolă nouă din linkul primit pe email. Închide toate sesiunile existente ale contului. */
+  async resetPassword(dto: ResetPasswordDto) {
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+    await this.dataSource.transaction(async (m) => {
+      const token = await this.tokens.consume(m, dto.token, 'PASSWORD_RESET');
+      if (!token) throw tokenError(INVALID_RESET);
+      await m.update(User, { id: token.userId }, {
+        passwordHash,
+        tokenVersion: () => '"tokenVersion" + 1', // JWT-urile emise înainte nu mai sunt acceptate
+      });
+      // Linkul a ajuns în căsuța de email, deci adresa este a lui.
+      await m.update(User, { id: token.userId, emailVerifiedAt: IsNull() }, { emailVerifiedAt: () => 'now()' });
+      await this.tokens.revokeAll(m, token.userId, 'PASSWORD_RESET');
+      await this.notifications.passwordChanged(m, await m.findOneByOrFail(User, { id: token.userId }));
+    });
+    return { message: 'Parola a fost schimbată. Autentifică-te cu noua parolă.' };
+  }
+
+  /** Confirmarea adresei din linkul primit pe email. Nu cere autentificare (linkul poate fi deschis pe alt dispozitiv). */
+  async verifyEmail(dto: VerifyEmailDto) {
+    await this.dataSource.transaction(async (m) => {
+      const token = await this.tokens.consume(m, dto.token, 'EMAIL_VERIFY');
+      if (!token) throw tokenError(INVALID_VERIFY);
+      await m.update(User, { id: token.userId, emailVerifiedAt: IsNull() }, { emailVerifiedAt: () => 'now()' });
+    });
+    return { message: 'Adresa de email a fost confirmată.', emailVerified: true };
+  }
+
+  async resendVerification(userId: string) {
+    const user = await this.users.findById(userId);
+    if (!user) throw new NotFoundException('Contul nu mai există.');
+    if (user.emailVerifiedAt) {
+      throw new BadRequestException({ statusCode: 400, error: 'Bad Request', message: 'Adresa ta de email este deja confirmată.' });
+    }
+    await this.dataSource.transaction(async (m) => {
+      const token = await this.tokens.issue(m, user.id, 'EMAIL_VERIFY'); // anulează linkul anterior
+      await this.notifications.emailVerification(m, user, token);
+    });
+    return { message: 'Ți-am trimis un nou email de confirmare.' };
   }
 
   // Conturile de organizator se creează doar cu codul de invitație din
@@ -45,10 +125,12 @@ export class AuthService {
   }
 
   private async session(user: User) {
-    const accessToken = await this.jwt.signAsync({ sub: user.id, role: user.role });
-    return {
-      accessToken,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role },
-    };
+    // `tv`: versiunea sesiunilor contului; după o resetare de parolă, token-urile cu `tv` vechi sunt respinse.
+    const accessToken = await this.jwt.signAsync({ sub: user.id, role: user.role, tv: user.tokenVersion ?? 0 });
+    return { accessToken, user: publicUser(user) };
   }
 }
+
+const normalizeEmail = (email: string) => email.trim().toLowerCase();
+const tokenError = (message: string) =>
+  new BadRequestException({ statusCode: 400, error: 'Bad Request', code: 'TOKEN_INVALID', message });

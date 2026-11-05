@@ -65,6 +65,7 @@
     "transform": {
       "^.+\\.ts$": "ts-jest"
     },
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "testTimeout": 15000
   }
 }

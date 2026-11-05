@@ -41,7 +41,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 | [4](#idea-4) | [x] | TypeORM migrations instead of `synchronize: true` | Production | S | |
 | [5](#idea-5) | [x] | Pagination on `GET /events` + `available` filter in SQL + single aggregate query for `summary` + safe search | Performance | M | 4 |
 | [6](#idea-6) | [x] | Transactional email (Resend): registration confirmation, event changed/deleted notice | Feature + API | M | |
-| [7](#idea-7) | [ ] | Password reset + email verification | Feature | M | 6 |
+| [7](#idea-7) | [x] | Password reset + email verification | Feature | M | 6 |
 | [8](#idea-8) | [ ] | Short access token + refresh token in httpOnly cookie, server-side logout/revocation | Security | M | |
 | [9](#idea-9) | [ ] | Waitlist with automatic promotion when someone cancels | Feature | M | 1, 6 |
 | [10](#idea-10) | [ ] | 24h reminders (`@nestjs/schedule`) + `.ics` download + "Add to Google Calendar" link | Feature | S–M | 6 |
@@ -598,9 +598,111 @@ New `backend/src/mail/` (`mail.module.ts`, `mailer.ts`, `resend.mailer.ts`, `log
 <a id="idea-7"></a>
 ## 7. Password reset + email verification
 
-**Status:** idea · plan not written yet · **Depends on:** [6](#idea-6)
+**Status:** ✅ done 2026-11-05 · 135/135 unit + 40/40 integration tests, 23/23 end-to-end checks (compiled API + fake Resend), backend and frontend build · **browser check of the 3 new pages still to do** · **Type:** Feature + Security · **Effort:** M · **Depends on:** [6](#idea-6), [2](#idea-2), [4](#idea-4)
 
-Without a reset, a user who forgets their password has no way back into their account.
+**Files changed:** backend: new `auth/auth-token.entity.ts`, `auth/tokens.service.ts`, `auth/verified-email.guard.ts` (+ spec), `auth/account-emails.spec.ts`, `auth/auth.int-spec.ts`, new migration `1793904062668-AddAuthTokens.ts`; changed `auth/auth.service.ts` (+ spec), `auth/auth.controller.ts`, `auth/auth.module.ts`, `auth/jwt-auth.guard.ts`, `auth/roles.ts`, `auth/dto/auth.dto.ts`, `users/user.entity.ts`, `events/event-view.ts` (+ spec), `events/events.controller.ts`, `registrations/registrations.controller.ts`, `mail/templates.ts`, `mail/notifications.service.ts`, `mail/outbox.entity.ts`, `mail/outbox-retry.ts`, `mail/log.mailer.ts`, `common/security.ts`, `common/routes.ts`, `database/data-source.ts`, `package.json` (Jest `testTimeout` 15 s). Frontend: new `pages/PasswordPages.tsx`, `pages/VerifyEmailPage.tsx`; changed `App.tsx`, `auth.tsx`, `api.ts`, `endpoints.ts`, `types.ts`, `pages/AuthPages.tsx`, `pages/EventDetailPage.tsx`, `pages/EventFormPage.tsx`, `styles.css`. `README.md` (routes, new "Cont" section).
+
+**Checks:**
+
+| Check | Result |
+|---|---|
+| Integration (real Postgres): verify link single-use / expired / invented; resend cancels old link; DB holds only hashes; forgot identical for existing vs unknown email, email only for existing; reset: old password fails, new works, **JWT from before the reset rejected**, `tokenVersion` 1; "password changed" email; reset verifies the email; link single-use; new request cancels old; expired rejected; verify link can't be used as reset link; **two simultaneous resets with one link → exactly one succeeds**; deleted user's token rejected; pre-`tv` tokens accepted as version 0; role/verified read from DB; sensitive emails delivered whole but scrubbed in the queue | ✅ 17 new |
+| Do the tests catch the two critical lines? | ✅ guard without `tokenVersion` check → "old sessions closed" fails; tokens without `usedAt IS NULL` → 5 tests fail |
+| Migration on a database with an existing user | ✅ user marked verified with its `createdAt`; `migration:check` clean |
+| End-to-end via HTTP: unverified organizer `POST /events` → 403 and unverified participant registration → 403 (**guard order correct on both routes**); verification fixes it on the same session; `mustVerifyEmail`; `/auth/me` exposes only public fields; forgot same response, no email to unknown address; short password → field error; reset closes old session; reused link → `TOKEN_INVALID`; queue scrubbed; 4th "forgot" in an hour → 429 "peste 60 de minute" | ✅ 23/23 |
+
+**Differences from the plan / additions:**
+- **Reset also verifies the email** (the link reached that mailbox).
+- **`canRegister` / new `mustVerifyEmail` come from the API** (in `event-view.ts`), like the other event flags, instead of the frontend guessing from the user object.
+- **429 message now states the real wait** ("peste 60 de minute" for hourly limits) instead of always "peste un minut". The one-minute limits keep their old text.
+- **Role is read from the database** on each request too, not trusted from the token.
+- **StrictMode guard on the verification page:** React runs effects twice in development; without a guard the second call would show "link invalid" right after the first succeeded.
+- **Token removed from the address bar** on both link pages.
+- **Jest unit `testTimeout` 5 → 15 s:** one `resend.mailer` test failed once while the machine was heavily loaded (all suites ran 5–10× slower); it passes alone and in every other run.
+
+### Problems (checked 2026-11-05)
+
+1. **No way back in.** A user who forgets their password has no recovery path; the only fix today is someone editing the database.
+2. **Nobody checks the email address.** Registering with a typo (`ana@gmial.com`) or someone else's address works. Since [#6](#idea-6), the app now *sends* to that address: confirmations, changes, and organizer notices go to whoever owns it.
+3. **A password change wouldn't end other sessions.** The JWT is valid for 7 days (`auth.module.ts`) and the guard only checks the signature. After a reset because "someone has my password", that person's existing session would keep working for up to a week.
+
+### Part A: one-time tokens (shared by reset and verification)
+
+1. New table `auth_tokens` (migration): `userId`, `kind` (`PASSWORD_RESET` / `EMAIL_VERIFY`), `tokenHash` (unique), `expiresAt`, `usedAt`, `createdAt`.
+2. A token is 32 random bytes (`crypto.randomBytes`), sent in the link as base64url. **Only its SHA-256 hash is stored**: someone who can read the database can't use the tokens in it.
+3. Single use (`usedAt`), short-lived: **reset 30 minutes**, **verification 24 hours**. Asking for a new reset link cancels the previous unused one.
+4. **Links in the email queue:** `email_outbox` stores each email's full HTML, so the link (with the real token) would sit in the database. For these two kinds, the worker **replaces the HTML/text with "[conținut șters după trimitere]" right after sending**. Combined with the short expiry, a later database leak exposes nothing usable.
+
+### Part B: password reset
+
+5. `POST /auth/password/forgot { email }` → **always** `202` with the same message, "Dacă există un cont cu această adresă, vei primi un email cu instrucțiuni.", whether or not the account exists. Otherwise the form would tell anyone which emails have accounts. An email is queued only when the account exists.
+6. `POST /auth/password/reset { token, password }`: same password rules as registration (8–72 characters). Invalid / expired / already used → `400` "Linkul de resetare nu mai este valabil. Cere unul nou." (one message for all three, nothing to probe). On success:
+   - new bcrypt hash, token marked used, other unused reset tokens of that user cancelled;
+   - **every existing session of that user stops working** (see Part D);
+   - a short "Parola ta a fost schimbată" email, so the real owner notices if it wasn't them.
+7. Rate limits (in `security.ts`): `forgot` 3/hour per IP + email and 20/hour per IP; `reset` 10/hour per IP.
+
+### Part C: email verification
+
+8. `users.emailVerifiedAt` (nullable). On registration a verification email is queued: "Confirmă adresa de email" with a 24-hour link.
+9. `POST /auth/email/verify { token }` → sets `emailVerifiedAt`. `POST /auth/email/resend` (logged in, 3/hour) → new link, previous one cancelled.
+10. `GET /auth/me` and the login/register response include `emailVerified: true/false`.
+11. **Until verified** (decision 1): a participant **can't register for events**, and an organizer **can't create events**. Both get `403` with `code: "EMAIL_NOT_VERIFIED"` and "Confirmă-ți adresa de email înainte să…". Logging in and browsing still work.
+    Consequence: since only verified users can register or organize, the event emails from [#6](#idea-6) only ever go to confirmed addresses.
+12. **Existing accounts** (decision 2): the migration marks them as verified (`emailVerifiedAt = createdAt`), so nobody who uses the app today gets locked out.
+
+### Part D: ending other sessions after a password change
+
+13. `users.tokenVersion` (integer, default 0) goes into the JWT as `tv`. A password reset increases it by 1.
+14. `JwtAuthGuard` (and `OptionalJwtGuard`) look up the user's current `tokenVersion`: one primary-key query per logged-in request. If it doesn't match the token → `401` "Sesiune expirată. Autentifică-te din nou." This also rejects tokens of **deleted** users, which today keep working until they expire.
+15. [#8](#idea-8) later replaces this with short access tokens plus revocable refresh tokens; the `tokenVersion` column stays useful there.
+
+### Part E: frontend
+
+16. Login page: link **"Ai uitat parola?"** → new page `/parola-uitata` (email field → the neutral message).
+17. New page `/resetare-parola?token=…`: new password + confirmation → on success, toast "Parola a fost schimbată. Autentifică-te cu noua parolă." and redirect to `/login`. The token is removed from the address bar as soon as the page reads it (`history.replaceState`), so it doesn't stay in browser history.
+18. New page `/confirmare-email?token=…`: confirms on load, then shows success or "linkul a expirat" with a resend button.
+19. While not verified: a thin banner under the navbar, "Confirmă-ți adresa de email. Nu ai primit emailul? Retrimite", and on an event page the `EMAIL_NOT_VERIFIED` error is shown with the same resend link instead of a generic toast.
+20. `types.ts`: `User.emailVerified`.
+
+### Part F: tests and docs
+
+21. **Unit:** token generation/hash/expiry; templates (reset, verify, password changed; link from `APP_URL`, escaped name); DTOs; guard rejects an old `tv` and a deleted user; the sensitive-email scrubbing in the worker.
+22. **Database-backed:**
+    - forgot for an existing and a non-existing email → identical response; an outbox row only for the existing one;
+    - reset: happy path; expired; used twice; wrong token; second "forgot" cancels the first link;
+    - after reset: old password fails, new one works, **a JWT issued before the reset gets 401**;
+    - verification: register → `EMAIL_VERIFY` row; unverified participant → 403 on register-for-event; after verifying → allowed; expired link → 400; resend cancels the old link;
+    - existing users after the migration are verified;
+    - sent reset/verify emails have their HTML scrubbed.
+23. **End-to-end** with the fake Resend server: "forgot" → read the link out of the captured email → open `/resetare-parola` flow through the API → log in with the new password; old session → 401. Same for verification.
+24. `README.md`: the 4 new routes in the API table, verification rules, token lifetimes, new limits. In this file, tick item 7 as `[x]`.
+
+### How it affects the project
+
+| Area | Effect |
+|---|---|
+| **New users** | Must confirm their email before registering for events or creating events. Can log in and browse right away. |
+| **Existing users** | No change: marked as verified by the migration. |
+| **API** | 4 new routes. `POST /events/:id/registrations` and `POST /events` can return `403 EMAIL_NOT_VERIFIED`. Login / register / `me` responses gain `emailVerified`. |
+| **Sessions** | After a password reset, all of that user's sessions end. Deleted users' tokens stop working immediately. Cost: one indexed primary-key query per logged-in request. |
+| **Database** | One migration: table `auth_tokens`; columns `users.emailVerifiedAt`, `users.tokenVersion`; existing users backfilled as verified. |
+| **Email volume** | +1 email per new account, +1–2 per password reset. Counts toward Resend's 100/day free limit. |
+| **Frontend** | 3 new pages, a link on the login page, a banner for unverified accounts. |
+| **Without a Resend key** | Works as in [#6](#idea-6): emails (including links) appear in the API log, which is handy locally: copy the link from there. |
+| **Later items** | [#8](#idea-8) reuses `tokenVersion` and the token table pattern; [#16](#idea-16) Turnstile can protect "forgot" too. |
+| **Risk** | Medium. Security-sensitive code (tokens, sessions); covered by the tests above. The guard change touches every logged-in request, so its tests matter most. |
+
+### Files to change
+
+New `backend/src/auth/auth-token.entity.ts`, `backend/src/auth/tokens.service.ts`, `backend/src/auth/password.controller.ts` (or routes in `auth.controller.ts`), DTOs in `auth/dto/auth.dto.ts`, `backend/src/auth/auth.service.ts`, `backend/src/auth/jwt-auth.guard.ts`, `backend/src/users/user.entity.ts`, `backend/src/users/users.service.ts`, `backend/src/mail/templates.ts` + `notifications.service.ts` + `outbox.worker.ts` (scrubbing), `backend/src/events/events.controller.ts` / `registrations.controller.ts` (verified check), `backend/src/common/security.ts`, new migration, new specs and int-specs; `frontend/src/pages/AuthPages.tsx`, new `frontend/src/pages/PasswordPages.tsx` and `VerifyEmailPage.tsx`, `frontend/src/App.tsx`, `frontend/src/auth.tsx`, `frontend/src/types.ts`, `frontend/src/endpoints.ts`, `frontend/src/styles.css`; `README.md`.
+
+### Decisions (2026-11-05): all four recommendations
+
+1. Unverified accounts can log in and browse, but can't register for events or create events.
+2. Existing accounts are marked as verified by the migration.
+3. Other sessions end on password reset now, with `tokenVersion`.
+4. After a successful reset: redirect to login.
 
 [↑ Back to table of contents](#table-of-contents)
 
@@ -773,4 +875,5 @@ Make the unused "Pure Black & Red Neon 4K" design the app's real look, instead o
 - 2026-11-05 – Intermittent Jest warning "A worker process has failed to exit gracefully" (seen in 2 of ~10 parallel `npm test` runs on Windows). All tests pass; `--detectOpenHandles` in a single process finds nothing. Look again when setting up CI in [#13](#idea-13) (e.g. `--runInBand` or `workerIdleMemoryLimit`).
 - 2026-11-05 – Email follow-ups from [#6](#idea-6): (a) cleanup job for old `SENT` rows in `email_outbox` (they stay forever now); (b) a way for organizers/admins to see `FAILED` emails; (c) a daily digest option for organizers of popular events instead of one email per registration; (d) verify a real domain + SPF/DKIM before emailing real participants.
 - 2026-11-05 – `backend/package.json`: add `"engines": { "node": ">=22.12" }` (required by `resend`), and use `npm ci` instead of `npm install` in the Dockerfile for reproducible builds.
+- 2026-11-05 – Account follow-ups from [#7](#idea-7): (a) cleanup of used/expired rows in `auth_tokens`; (b) "change password" while logged in (needs the current password) and "change email" (needs re-verification); (c) a banner update in other open tabs after verifying (today only the tab that opened the link refreshes); (d) register's unique-email race: two simultaneous sign-ups with the same address → the second gets a 500 from the database constraint instead of 409.
 - 2026-11-05 – Update outdated dependencies that `npm install` warns about (`glob`, `inflight`, `uuid`, pulled in by other packages), as part of [#13](#idea-13).

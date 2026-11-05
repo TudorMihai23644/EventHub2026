@@ -57,6 +57,21 @@ export class Notifications {
     return people.length;
   }
 
+  // ---------- cont ----------
+  // `token` este în clar doar aici și în email; rândul din coadă e marcat `sensitive` și se golește după trimitere.
+
+  async passwordReset(m: EntityManager, user: Pick<User, 'name' | 'email'>, token: string) {
+    await this.enqueue(m, 'password-reset', user, T.passwordReset(this.cfg, { name: user.name, token }), true);
+  }
+
+  async emailVerification(m: EntityManager, user: Pick<User, 'name' | 'email'>, token: string) {
+    await this.enqueue(m, 'email-verify', user, T.emailVerification(this.cfg, { name: user.name, token }), true);
+  }
+
+  async passwordChanged(m: EntityManager, user: Pick<User, 'name' | 'email'>) {
+    await this.enqueue(m, 'password-changed', user, T.passwordChanged(this.cfg, { name: user.name }));
+  }
+
   private async participants(m: EntityManager, eventId: string): Promise<User[]> {
     const rows = await m.find(Registration, { where: { eventId }, relations: { user: true }, order: { createdAt: 'ASC' } });
     return rows.map((r) => r.user);
@@ -67,8 +82,8 @@ export class Notifications {
   }
 
   // Un email per persoană: adresele participanților nu ajung unii la alții.
-  private async enqueue(m: EntityManager, kind: string, to: User, content: EmailContent) {
-    await m.insert(OutboxEmail, { to: to.email, kind, ...content });
+  private async enqueue(m: EntityManager, kind: string, to: Pick<User, 'email'>, content: EmailContent, sensitive = false) {
+    await m.insert(OutboxEmail, { to: to.email, kind, sensitive, ...content });
   }
 }
 

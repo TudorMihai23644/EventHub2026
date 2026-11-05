@@ -5,6 +5,8 @@ export interface User {
   name: string;
   email: string;
   role: Role;
+  /** false până când utilizatorul confirmă adresa din emailul primit la înregistrare. */
+  emailVerified: boolean;
 }
 
 // Toate câmpurile derivate (status, flag-uri, procente) sunt calculate de API.
@@ -25,6 +27,8 @@ export interface EventItem {
   isOwner: boolean;
   isRegistered: boolean;
   canRegister: boolean;
+  /** Participant care s-ar putea înscrie, dar trebuie întâi să-și confirme emailul. */
+  mustVerifyEmail: boolean;
   canCancel: boolean;
   canEdit: boolean;
 }

@@ -1,5 +1,21 @@
+import { applyDecorators } from '@nestjs/common';
 import { Trim } from '../../common/trim';
 import { IsEmail, IsIn, IsOptional, IsString, MinLength, MaxLength } from 'class-validator';
+
+// Aceleași reguli la înregistrare și la resetarea parolei (72 = limita bcrypt).
+const PasswordRules = () =>
+  applyDecorators(
+    IsString({ message: 'Parola este obligatorie.' }),
+    MinLength(8, { message: 'Parola trebuie să aibă cel puțin 8 caractere.' }),
+    MaxLength(72, { message: 'Parola poate avea maximum 72 de caractere.' }),
+  );
+
+// Token-ul din link: base64url de 32 de octeți = 43 de caractere; limita doar oprește valori absurde.
+const TokenRules = () =>
+  applyDecorators(
+    IsString({ message: 'Linkul nu este valid.' }),
+    MaxLength(200, { message: 'Linkul nu este valid.' }),
+  );
 
 export class RegisterDto {
   @IsString({ message: 'Numele este obligatoriu.' })
@@ -11,9 +27,7 @@ export class RegisterDto {
   @IsEmail({}, { message: 'Introdu o adresă de email validă.' })
   email: string;
 
-  @IsString()
-  @MinLength(8, { message: 'Parola trebuie să aibă cel puțin 8 caractere.' })
-  @MaxLength(72, { message: 'Parola poate avea maximum 72 de caractere.' })
+  @PasswordRules()
   password: string;
 
   @IsIn(['PARTICIPANT', 'ORGANIZER'], { message: 'Rolul trebuie să fie Participant sau Organizator.' })
@@ -33,4 +47,22 @@ export class LoginDto {
 
   @IsString({ message: 'Parola este obligatorie.' })
   password: string;
+}
+
+export class ForgotPasswordDto {
+  @IsEmail({}, { message: 'Introdu o adresă de email validă.' })
+  email: string;
+}
+
+export class ResetPasswordDto {
+  @TokenRules()
+  token: string;
+
+  @PasswordRules()
+  password: string;
+}
+
+export class VerifyEmailDto {
+  @TokenRules()
+  token: string;
 }

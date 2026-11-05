@@ -8,10 +8,20 @@ export function retryDelaySeconds(attempts: number, retryAfterSeconds?: number):
   return Math.max(backoff, retryAfterSeconds ?? 0);
 }
 
+export const SCRUBBED = '[conținut șters după trimitere]';
+
+/** Emailurile cu link secret nu își păstrează conținutul în baza de date după ce au plecat (sau au eșuat definitiv). */
+function scrubIfSensitive(row: OutboxEmail) {
+  if (!row.sensitive) return;
+  row.html = SCRUBBED;
+  row.text = SCRUBBED;
+}
+
 export function markSent(row: OutboxEmail, now: Date) {
   row.status = 'SENT';
   row.sentAt = now;
   row.lastError = null;
+  scrubIfSensitive(row);
 }
 
 /** Trimiterea a eșuat. `permanent`: nu are rost să reîncercăm (ex. adresă invalidă). */
@@ -20,6 +30,7 @@ export function markFailed(row: OutboxEmail, error: string, now: Date, opts: { p
   row.lastError = error.slice(0, 2000);
   if (opts.permanent || row.attempts >= MAX_ATTEMPTS) {
     row.status = 'FAILED';
+    scrubIfSensitive(row);
     return;
   }
   row.sendAfter = new Date(now.getTime() + retryDelaySeconds(row.attempts, opts.retryAfterSeconds) * 1000);

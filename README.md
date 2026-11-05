@@ -52,14 +52,14 @@ Dacă ai rulat scriptul de secrete înainte de emailuri, rulează-l din nou: cre
 ```bash
 cd backend && npm test
 ```
-Teste unitare pentru regulile de înscriere (duplicat, capacitate, eveniment trecut, succes, eveniment inexistent), anulare (după începere, neînscris, lock), modificarea capacității (sub numărul de înscriși, alt organizator, lock), înregistrarea organizatorilor (cod lipsă, greșit, neconfigurat, corect), limitarea cererilor (429 după limită, IP + email, rute nelimitate, comutatorul Swagger), setările bazei de date (fără `synchronize`, migrări, `DB_MIGRATIONS_RUN`), validarea (parametrii de listare, mesajele câmp cu câmp, `null` la editare), `escapeLike`, emailurile (conținut, escapare HTML, ora din București, reîncercări, `ResendMailer` pe un server Resend fals) și codificarea fișierelor sursă (fără text dublu codificat).
+Teste unitare pentru regulile de înscriere (duplicat, capacitate, eveniment trecut, succes, eveniment inexistent), anulare (după începere, neînscris, lock), modificarea capacității (sub numărul de înscriși, alt organizator, lock), înregistrarea organizatorilor (cod lipsă, greșit, neconfigurat, corect), limitarea cererilor (429 după limită, IP + email, rute nelimitate, comutatorul Swagger), setările bazei de date (fără `synchronize`, migrări, `DB_MIGRATIONS_RUN`), validarea (parametrii de listare, mesajele câmp cu câmp, `null` la editare), `escapeLike`, emailurile (conținut, escapare HTML, ora din București, reîncercări, `ResendMailer` pe un server Resend fals), contul (confirmarea emailului cerută la înscriere, mesajul 429 cu timpul rămas, emailurile de resetare/confirmare) și codificarea fișierelor sursă (fără text dublu codificat).
 
 **Teste de integrare** (pe un PostgreSQL real, cu schema creată de migrări; au nevoie de Docker):
 
 ```bash
 cd backend
 npm run test:db:up     # pornește un PostgreSQL temporar pe 127.0.0.1:55432 (baza eventhub_test)
-npm run test:int       # paginare, locuri libere, căutare, rezumat; emailuri: coadă, rollback, trimitere, 2 worker-e simultan
+npm run test:int       # paginare, căutare, rezumat; emailuri (coadă, rollback, 2 worker-e); cont (linkuri, resetare, sesiuni)
 npm run test:db:down   # oprește și șterge containerul
 ```
 
@@ -79,25 +79,43 @@ Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt def
 | POST | `/auth/register` | public | 201, `{accessToken, user}`; rolul `ORGANIZER` cere `inviteCode` valid, altfel 403; 429 după 10 conturi/oră de pe același IP |
 | POST | `/auth/login` | public | 200 / 401 / 429 (5/min per cont + IP, 30/min per IP) |
 | POST | `/auth/logout` | autentificat | 204; JWT este stateless, clientul șterge token-ul |
-| GET | `/auth/me` | autentificat | |
+| GET | `/auth/me` | autentificat | `{ id, name, email, role, emailVerified }` |
+| POST | `/auth/password/forgot` | public | `{ email }` → mereu 202 cu același mesaj (nu dezvăluie dacă adresa are cont); 429 după 3/oră per adresă + IP, 20/oră per IP |
+| POST | `/auth/password/reset` | public | `{ token, password }` → 200; 400 `TOKEN_INVALID` (link inexistent, expirat sau folosit); închide toate sesiunile contului |
+| POST | `/auth/email/verify` | public | `{ token }` → 200; 400 `TOKEN_INVALID` |
+| POST | `/auth/email/resend` | autentificat | 202 cu un link nou (cel vechi se anulează); 400 dacă adresa e deja confirmată; 5/oră per IP |
 | GET | `/events?search=&sort=asc\|desc&available=true&page=1&limit=20` | public | doar evenimente viitoare; răspuns paginat `{ items, total, page, limit, totalPages }`; `limit` maxim 50, `search` maxim 100 de caractere (`%` și `_` se caută literal); 400 pentru valori invalide |
 | GET | `/events/:id/registrations` | organizator proprietar | lista participanților înscriși |
 | GET | `/events/:id` | public | include `registeredCount`, `availableSeats` |
 | GET | `/events/mine` | organizator | dashboard cu numărul de înscrieri |
 | GET | `/events/mine/summary` | organizator | `{eventsCount, upcomingCount, totalRegistrations}` |
-| POST | `/events` | organizator | 201 / 400 |
+| POST | `/events` | organizator cu email confirmat | 201 / 400 / 403 `EMAIL_NOT_VERIFIED` |
 | PATCH | `/events/:id` | organizator proprietar | 403 dacă nu este proprietar |
 | DELETE | `/events/:id` | organizator proprietar | 204 |
-| POST | `/events/:id/registrations` | participant | 201 / 400 (trecut) / 409 (duplicat, plin) |
+| POST | `/events/:id/registrations` | participant cu email confirmat | 201 / 400 (trecut) / 403 `EMAIL_NOT_VERIFIED` / 409 (duplicat, plin) |
 | DELETE | `/events/:id/registrations` | participant | 204 / 400 (început) / 404 |
 | GET | `/registrations/me` | participant | |
 
 **Toată logica este în API.** Frontend-ul doar afișează răspunsurile. Evenimentele vin cu starea calculată pe server
-(`status`: OPEN/FULL/PAST, `isRegistered`, `canRegister`, `canCancel`, `canEdit`, `occupancyPercent`), iar erorile de validare
+(`status`: OPEN/FULL/PAST, `isRegistered`, `canRegister`, `mustVerifyEmail`, `canCancel`, `canEdit`, `occupancyPercent`), iar erorile de validare
 vin ca `{ message, fields: { câmp: mesaj } }` și se afișează lângă fiecare câmp. Rutele `GET /events` și `GET /events/:id`
 sunt publice, dar adaptează răspunsul dacă cererea are token.
 
 Logout se face pe client prin ștergerea token-ului JWT.
+
+## Cont: confirmarea emailului, resetarea parolei, sesiuni
+
+- **Confirmarea adresei.** La înregistrare se trimite un link de confirmare (valabil 24 de ore). Până la confirmare,
+  utilizatorul se poate autentifica și poate vedea evenimentele, dar **nu se poate înscrie** (participant) și **nu poate crea evenimente** (organizator):
+  API-ul răspunde 403 cu `code: "EMAIL_NOT_VERIFIED"`, iar interfața arată o bandă cu „Retrimite emailul de confirmare”.
+  Astfel emailurile despre evenimente ajung doar la adrese confirmate. Conturile create înainte de această funcție sunt considerate confirmate.
+- **Resetarea parolei.** „Ai uitat parola?” pe pagina de autentificare → link pe email, valabil **30 de minute**, o singură dată;
+  o cerere nouă anulează linkul anterior. După resetare se trimite emailul „Parola ta a fost schimbată”.
+- **Linkurile sunt sigure în baza de date:** în `auth_tokens` se păstrează doar hash-ul SHA-256 al token-ului, iar conținutul emailurilor
+  cu link (`email_outbox.sensitive`) se șterge imediat după trimitere.
+- **Sesiuni.** JWT-ul conține `tv` (versiunea sesiunilor contului). La fiecare cerere autentificată, API-ul citește contul (o interogare pe cheia primară):
+  după o resetare de parolă toate sesiunile vechi primesc 401, la fel token-urile unui cont șters. Rolul și starea emailului vin din baza de date, nu din token.
+- **Local, fără cheie Resend:** linkurile apar în logul API-ului (nivel `debug`, sub `LogMailer`): de acolo se pot copia.
 
 ## Migrări
 
@@ -181,6 +199,7 @@ Planul gratuit Resend: 100 de emailuri pe zi și 3.000 pe lună. Dacă limita zi
 - Înscrierea nu se mai poate anula după începerea evenimentului (400). Anularea rulează în aceeași tranzacție cu lock pe eveniment ca înscrierea.
 - Doar organizatorul proprietar poate edita sau șterge (guard de rol + verificare de proprietate → 403).
 - Capacitatea unui eveniment nu poate fi redusă sub numărul de înscriși. Modificarea rulează într-o tranzacție cu același lock, deci o înscriere simultană nu poate depăși noua capacitate.
+- Înscrierea la evenimente și crearea de evenimente cer o adresă de email confirmată (403 `EMAIL_NOT_VERIFIED`).
 - Validare cu `class-validator` (`whitelist` + `forbidNonWhitelisted`), parole hash-uite cu bcrypt.
 
 ## Structura

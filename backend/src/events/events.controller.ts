@@ -6,6 +6,7 @@ import { CreateEventDto, ListEventsQuery, UpdateEventDto } from './dto/event.dto
 import { JwtAuthGuard, OptionalJwtGuard } from '../auth/jwt-auth.guard';
 import { AuthUser, CurrentUser, Roles, RolesGuard } from '../auth/roles';
 import { ROUTES } from '../common/routes';
+import { RequireVerifiedEmail } from '../auth/verified-email.guard';
 
 @Controller(ROUTES.events.base)
 export class EventsController {
@@ -47,6 +48,7 @@ export class EventsController {
   }
 
   @Post()
+  @RequireVerifiedEmail('să creezi evenimente') // deasupra lui UseGuards: rulează după JwtAuthGuard
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ORGANIZER')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateEventDto) {

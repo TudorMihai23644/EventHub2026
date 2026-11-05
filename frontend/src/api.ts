@@ -1,7 +1,8 @@
 import { API_URL } from './config';
 
 export class ApiError extends Error {
-  constructor(message: string, public status: number, public fields: Record<string, string> = {}) {
+  /** `code`: cod stabil trimis de API pentru cazurile tratate special (ex. EMAIL_NOT_VERIFIED, TOKEN_INVALID). */
+  constructor(message: string, public status: number, public fields: Record<string, string> = {}, public code?: string) {
     super(message);
   }
 }
@@ -32,7 +33,7 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     const m = data?.message;
-    throw new ApiError(Array.isArray(m) ? m.join(' ') : m ?? 'A apărut o eroare.', res.status, data?.fields ?? {});
+    throw new ApiError(Array.isArray(m) ? m.join(' ') : m ?? 'A apărut o eroare.', res.status, data?.fields ?? {}, data?.code);
   }
   return data as T;
 }

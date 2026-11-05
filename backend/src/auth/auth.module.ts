@@ -4,10 +4,13 @@ import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { secret } from '../common/secrets';
+import { MailModule } from '../mail/mail.module';
+import { TokensService } from './tokens.service';
 
 @Module({
   imports: [
     UsersModule,
+    MailModule, // emailurile de confirmare / resetare
     JwtModule.registerAsync({
       global: true, // JwtService disponibil în guard-urile din toate modulele
       useFactory: () => ({
@@ -17,6 +20,6 @@ import { secret } from '../common/secrets';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [AuthService, TokensService],
 })
 export class AuthModule {}

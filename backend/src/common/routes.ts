@@ -4,7 +4,11 @@ export const API_PREFIX = 'api';
 
 export const ROUTES = {
   health: 'health',
-  auth: { base: 'auth', register: 'register', login: 'login', logout: 'logout', me: 'me' },
+  auth: {
+    base: 'auth', register: 'register', login: 'login', logout: 'logout', me: 'me',
+    forgotPassword: 'password/forgot', resetPassword: 'password/reset',
+    verifyEmail: 'email/verify', resendVerification: 'email/resend',
+  },
   events: {
     base: 'events',
     mine: 'mine',

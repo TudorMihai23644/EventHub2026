@@ -130,6 +130,47 @@ export function eventCancelled(cfg: Cfg, d: { name: string; event: EventInfo }):
   });
 }
 
+// ---------- cont: resetare parolă, confirmare email ----------
+// Linkurile conțin token-ul în clar; conținutul acestor emailuri se șterge din coadă după trimitere.
+
+export const passwordResetUrl = (cfg: Cfg, token: string) => `${cfg.appUrl}/resetare-parola?token=${encodeURIComponent(token)}`;
+export const emailVerifyUrl = (cfg: Cfg, token: string) => `${cfg.appUrl}/confirmare-email?token=${encodeURIComponent(token)}`;
+
+export function passwordReset(cfg: Cfg, d: { name: string; token: string }): EmailContent {
+  return render(cfg, 'Resetează-ți parola EventHub', {
+    heading: 'Resetează-ți parola',
+    lines: [
+      `Bună, ${d.name}! Am primit o cerere de resetare a parolei pentru contul tău.`,
+      'Linkul este valabil 30 de minute și poate fi folosit o singură dată.',
+      'Dacă nu tu ai cerut resetarea, ignoră acest email: parola ta rămâne neschimbată.',
+    ],
+    button: { label: 'Alege o parolă nouă', url: passwordResetUrl(cfg, d.token) },
+  });
+}
+
+export function emailVerification(cfg: Cfg, d: { name: string; token: string }): EmailContent {
+  return render(cfg, 'Confirmă adresa de email pentru EventHub', {
+    heading: 'Confirmă adresa de email',
+    lines: [
+      `Bună, ${d.name}! Mai e un pas: confirmă că această adresă îți aparține.`,
+      'După confirmare te poți înscrie la evenimente (sau, ca organizator, poți crea evenimente). Linkul este valabil 24 de ore.',
+      'Dacă nu tu ți-ai creat contul, ignoră acest email.',
+    ],
+    button: { label: 'Confirmă adresa', url: emailVerifyUrl(cfg, d.token) },
+  });
+}
+
+export function passwordChanged(cfg: Cfg, d: { name: string }): EmailContent {
+  return render(cfg, 'Parola ta EventHub a fost schimbată', {
+    heading: 'Parola a fost schimbată',
+    lines: [
+      `Bună, ${d.name}! Parola contului tău tocmai a fost schimbată, iar toate sesiunile deschise au fost închise.`,
+      'Dacă nu tu ai schimbat-o, cere imediat o resetare a parolei folosind „Ai uitat parola?” pe pagina de autentificare.',
+    ],
+    button: { label: 'Autentifică-te', url: `${cfg.appUrl}/login` },
+  });
+}
+
 // ---------- pentru organizator ----------
 
 interface OrganizerData {

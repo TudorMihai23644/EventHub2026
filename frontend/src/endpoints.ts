@@ -7,6 +7,10 @@ export const ENDPOINTS = {
     login: '/auth/login',
     logout: '/auth/logout',
     me: '/auth/me',
+    forgotPassword: '/auth/password/forgot',
+    resetPassword: '/auth/password/reset',
+    verifyEmail: '/auth/email/verify',
+    resendVerification: '/auth/email/resend',
   },
   events: {
     list: (query = '') => `/events${query ? `?${query}` : ''}`,

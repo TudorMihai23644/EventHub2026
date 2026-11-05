@@ -5,6 +5,7 @@ import { ENDPOINTS } from '../endpoints';
 import { useAuth } from '../auth';
 import { EventItem } from '../types';
 import { DateTile, Loading, errMsg, fmtDate, seatsLabel, useToast } from '../ui';
+import { ResendVerificationButton } from './VerifyEmailPage';
 
 export default function EventDetailPage() {
   const { id } = useParams();
@@ -66,6 +67,12 @@ export default function EventDetailPage() {
           <p className="muted">Conturile de organizator nu se pot înscrie la evenimente.</p>
         )}
         {ev.canRegister && <button className="btn" onClick={() => act('POST')} disabled={busy}>Înscrie-te</button>}
+        {ev.mustVerifyEmail && (
+          <>
+            <p>Mai e un pas: confirmă-ți adresa de email ca să te poți înscrie. Linkul este în emailul primit la înregistrare.</p>
+            <ResendVerificationButton className="btn ghost" />
+          </>
+        )}
         {ev.canCancel && <button className="btn ghost" onClick={() => act('DELETE')} disabled={busy}>Anulează înscrierea</button>}
         {user?.role === 'PARTICIPANT' && ev.status === 'FULL' && !ev.isRegistered && (
           <button className="btn" disabled>Locuri epuizate</button>

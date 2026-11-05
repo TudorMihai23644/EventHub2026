@@ -3,12 +3,16 @@ import { BatchResult, Mailer, OutgoingEmail } from './mailer';
 
 // Folosit automat când nu există RESEND_API_KEY: nu trimite nimic, doar scrie în log.
 // Astfel dezvoltarea locală și testele nu pot trimite emailuri reale din greșeală.
+// Textul complet (cu linkurile de resetare / confirmare) apare la nivel `debug`, ca să poată fi copiat local.
 export class LogMailer extends Mailer {
   readonly name = 'log';
   private readonly logger = new Logger('LogMailer');
 
   async sendBatch(emails: OutgoingEmail[]): Promise<BatchResult> {
-    for (const e of emails) this.logger.log(`[nu se trimite] către ${e.to}: ${e.subject}`);
+    for (const e of emails) {
+      this.logger.log(`[nu se trimite] către ${e.to}: ${e.subject}`);
+      this.logger.debug(`${e.subject}\n${e.text}`);
+    }
     return { failed: [] };
   }
 }

@@ -6,6 +6,8 @@ import { LoginPage, RegisterPage } from './pages/AuthPages';
 import MyRegistrationsPage from './pages/MyRegistrationsPage';
 import DashboardPage from './pages/DashboardPage';
 import EventFormPage from './pages/EventFormPage';
+import { ForgotPasswordPage, ResetPasswordPage } from './pages/PasswordPages';
+import VerifyEmailPage, { VerifyBanner } from './pages/VerifyEmailPage';
 import { useToast } from './ui';
 
 // Sigla EventHub, redesenată vectorial (rămâne clară la orice rezoluție, inclusiv 4K).
@@ -52,12 +54,16 @@ export default function App() {
   return (
     <>
       <Navbar />
+      <VerifyBanner />
       <main>
         <Routes>
           <Route path="/" element={<EventsPage />} />
           <Route path="/events/:id" element={<EventDetailPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/parola-uitata" element={<ForgotPasswordPage />} />
+          <Route path="/resetare-parola" element={<ResetPasswordPage />} />
+          <Route path="/confirmare-email" element={<VerifyEmailPage />} />
           <Route path="/inscrierile-mele" element={<RequireRole role="PARTICIPANT"><MyRegistrationsPage /></RequireRole>} />
           <Route path="/organizator" element={<RequireRole role="ORGANIZER"><DashboardPage /></RequireRole>} />
           <Route path="/organizator/nou" element={<RequireRole role="ORGANIZER"><EventFormPage /></RequireRole>} />

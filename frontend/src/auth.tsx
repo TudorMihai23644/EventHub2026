@@ -12,6 +12,8 @@ interface AuthCtx {
   login: (email: string, password: string) => Promise<User>;
   register: (data: { name: string; email: string; password: string; role: Role; inviteCode?: string }) => Promise<User>;
   logout: () => void;
+  /** Recitește contul de la API (ex. după confirmarea emailului). */
+  refresh: () => Promise<void>;
 }
 
 const Ctx = createContext<AuthCtx>(null as unknown as AuthCtx);
@@ -40,6 +42,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       api(ENDPOINTS.auth.logout, { method: 'POST' }).catch(() => {}); // cererea pornește cu token-ul încă setat
       tokenStore.clear();
       setUser(null);
+    },
+    refresh: async () => {
+      if (!tokenStore.get()) return;
+      try { setUser(await api<User>(ENDPOINTS.auth.me)); }
+      catch { tokenStore.clear(); setUser(null); } // sesiune închisă (ex. parola a fost resetată)
     },
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

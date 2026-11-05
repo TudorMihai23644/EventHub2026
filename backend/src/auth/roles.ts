@@ -14,6 +14,8 @@ export const Roles = (...roles: Role[]) => SetMetadata('roles', roles);
 export interface AuthUser {
   id: string;
   role: Role;
+  /** Din baza de date, la fiecare cerere (vezi sessionFromToken). */
+  emailVerified?: boolean;
 }
 
 export const CurrentUser = createParamDecorator(

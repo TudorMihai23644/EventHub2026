@@ -22,6 +22,16 @@ describe('buildEventView', () => {
     expect(buildEventView(past, { id: 'u1', role: 'PARTICIPANT' }, true)).toMatchObject({ status: 'PAST', canRegister: false, canCancel: false });
   });
 
+  it('participantul cu email neconfirmat nu se poate înscrie, dar primește mustVerifyEmail', () => {
+    const v = buildEventView(ev(), { id: 'u1', role: 'PARTICIPANT', emailVerified: false }, false);
+    expect(v).toMatchObject({ canRegister: false, mustVerifyEmail: true });
+    const ok = buildEventView(ev(), { id: 'u1', role: 'PARTICIPANT', emailVerified: true }, false);
+    expect(ok).toMatchObject({ canRegister: true, mustVerifyEmail: false });
+    // fără locuri: nici înscriere, nici îndemn la confirmare
+    expect(buildEventView(ev({ registeredCount: 2 }), { id: 'u1', role: 'PARTICIPANT', emailVerified: false }, false))
+      .toMatchObject({ canRegister: false, mustVerifyEmail: false });
+  });
+
   it('doar organizatorul proprietar are canEdit; vizitatorul nu are nicio acțiune', () => {
     expect(buildEventView(ev(), { id: 'org1', role: 'ORGANIZER' }).canEdit).toBe(true);
     expect(buildEventView(ev(), { id: 'org2', role: 'ORGANIZER' }).canEdit).toBe(false);

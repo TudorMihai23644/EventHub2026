@@ -10,7 +10,10 @@ export function buildEventView(e: Event, viewer?: AuthUser, registered = false, 
   const isPast = new Date(e.startsAt).getTime() <= now;
   const isOwner = viewer?.role === 'ORGANIZER' && viewer.id === e.organizerId;
   const isParticipant = viewer?.role === 'PARTICIPANT';
+  // emailVerified vine din sesiune; `undefined` (ex. în teste vechi) contează ca confirmat
+  const verified = viewer?.emailVerified !== false;
   const status: EventStatus = isPast ? 'PAST' : availableSeats === 0 ? 'FULL' : 'OPEN';
+  const couldRegister = isParticipant && !isPast && !registered && availableSeats > 0;
   return {
     ...e,
     registeredCount,
@@ -20,7 +23,9 @@ export function buildEventView(e: Event, viewer?: AuthUser, registered = false, 
     isPast,
     isOwner,
     isRegistered: isParticipant && registered,
-    canRegister: isParticipant && !isPast && !registered && availableSeats > 0,
+    canRegister: couldRegister && verified,
+    /** S-ar putea înscrie, dar întâi trebuie să-și confirme adresa de email. */
+    mustVerifyEmail: couldRegister && !verified,
     canCancel: isParticipant && registered && !isPast,
     canEdit: isOwner,
   };

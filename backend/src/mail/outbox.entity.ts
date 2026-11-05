@@ -35,6 +35,10 @@ export class OutboxEmail {
   @Column({ type: 'text', nullable: true })
   lastError: string | null;
 
+  /** Conține un link secret (resetare parolă, confirmare email): HTML-ul și textul se șterg după trimitere. */
+  @Column({ type: 'boolean', default: false })
+  sensitive: boolean;
+
   @Column({ type: 'timestamptz', default: () => 'now()' })
   sendAfter: Date;
 

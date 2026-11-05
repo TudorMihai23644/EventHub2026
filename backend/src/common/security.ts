@@ -8,12 +8,25 @@ export const LIMITS = {
   loginAccount: { ttl: MINUTE, limit: 5 }, // per IP + email: ghicirea parolei unui cont
   loginIp: { ttl: MINUTE, limit: 30 }, // per IP: încercări pe multe conturi
   register: { ttl: 60 * MINUTE, limit: 10 }, // per IP: conturi false în masă
+  forgotAccount: { ttl: 60 * MINUTE, limit: 3 }, // per IP + email: emailuri de resetare către o adresă
+  forgotIp: { ttl: 60 * MINUTE, limit: 20 }, // per IP: cereri de resetare pentru multe adrese
+  reset: { ttl: 60 * MINUTE, limit: 10 }, // per IP: încercări de token-uri de resetare
+  verify: { ttl: 60 * MINUTE, limit: 20 }, // per IP: încercări de token-uri de confirmare
+  resend: { ttl: 60 * MINUTE, limit: 5 }, // per IP: retrimiterea emailului de confirmare
 } as const;
 
-export const TOO_MANY_REQUESTS = 'Prea multe încercări. Încearcă din nou peste un minut.';
+// „un minut”, „5 minute”, „45 de minute” (în română, de la 20 în sus se pune „de”).
+function minutesRo(n: number) {
+  if (n <= 1) return 'un minut';
+  const mod = n % 100;
+  return mod === 0 || mod >= 20 ? `${n} de minute` : `${n} minute`;
+}
+export const tooManyRequests = (secondsLeft: number) =>
+  `Prea multe încercări. Încearcă din nou peste ${minutesRo(Math.ceil(Math.max(1, secondsLeft) / 60))}.`;
+export const TOO_MANY_REQUESTS = tooManyRequests(60);
 
 // Limitele stricte se aplică doar rutelor marcate cu @ThrottleScope(...).
-export type ThrottleScopeName = 'login' | 'register';
+export type ThrottleScopeName = 'login' | 'register' | 'forgot' | 'reset' | 'verify' | 'resend';
 const SCOPE_KEY = 'eventhub:throttle-scope';
 export const ThrottleScope = (scope: ThrottleScopeName) => SetMetadata(SCOPE_KEY, scope);
 export const throttleScopeOf = (handler: object): ThrottleScopeName | undefined => Reflect.getMetadata(SCOPE_KEY, handler);
@@ -24,12 +37,18 @@ const ipAndEmail = (req: Record<string, any>) =>
   `${req.ip}|${String(req.body?.email ?? '').trim().toLowerCase()}`;
 
 export const throttlerOptions: ThrottlerModuleOptions = {
-  errorMessage: TOO_MANY_REQUESTS,
+  // mesajul spune cât mai e de așteptat (limitele de o oră nu se termină „peste un minut”)
+  errorMessage: (_ctx, detail) => tooManyRequests(detail.timeToBlockExpire),
   throttlers: [
     { name: 'default', ...LIMITS.default },
     { name: 'login-ip', ...LIMITS.loginIp, skipIf: onlyFor('login') },
     { name: 'login-account', ...LIMITS.loginAccount, skipIf: onlyFor('login'), getTracker: ipAndEmail },
     { name: 'register', ...LIMITS.register, skipIf: onlyFor('register') },
+    { name: 'forgot-ip', ...LIMITS.forgotIp, skipIf: onlyFor('forgot') },
+    { name: 'forgot-account', ...LIMITS.forgotAccount, skipIf: onlyFor('forgot'), getTracker: ipAndEmail },
+    { name: 'reset', ...LIMITS.reset, skipIf: onlyFor('reset') },
+    { name: 'verify', ...LIMITS.verify, skipIf: onlyFor('verify') },
+    { name: 'resend', ...LIMITS.resend, skipIf: onlyFor('resend') },
   ],
 };
 

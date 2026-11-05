@@ -40,6 +40,7 @@ export function LoginPage() {
       {error && <p className="alert err" role="alert">{error}</p>}
       <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /><FieldError error={fields.email} /></label>
       <label>Parolă<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /><FieldError error={fields.password} /></label>
+      <p className="small"><Link to="/parola-uitata">Ai uitat parola?</Link></p>
       <button className="btn" disabled={busy}>Autentifică-te</button>
       <p className="muted">Nu ai cont? <Link to="/register">Creează unul</Link></p>
     </form>
@@ -66,7 +67,7 @@ export function RegisterPage() {
         name: f.name, email: f.email, password: f.password, role: f.role,
         inviteCode: f.role === 'ORGANIZER' ? f.inviteCode : undefined,
       });
-      notify('ok', 'Contul a fost creat.');
+      notify('ok', `Contul a fost creat. Ți-am trimis un email de confirmare la ${u.email}.`);
       nav(u.role === 'ORGANIZER' ? '/organizator' : '/');
     } catch (err) {
       const r = formError(err);

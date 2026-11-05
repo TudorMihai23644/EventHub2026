@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api } from '../api';
+import { ApiError, api } from '../api';
 import { ENDPOINTS } from '../endpoints';
 import { EventItem } from '../types';
 import { FieldError, Loading, errMsg, formError, toLocalInput, useToast } from '../ui';
+import { ResendVerificationButton } from './VerifyEmailPage';
 
 const empty = { title: '', description: '', startsAt: '', location: '', capacity: '50' };
 
@@ -19,6 +20,7 @@ export default function EventFormPage() {
   const [error, setError] = useState('');
   const [fields, setFields] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [needsVerify, setNeedsVerify] = useState(false); // organizator cu email neconfirmat
 
   useEffect(() => {
     if (!id) return;
@@ -50,6 +52,7 @@ export default function EventFormPage() {
       notify('ok', editing ? 'Modificările au fost salvate.' : 'Evenimentul a fost creat.');
       nav('/organizator');
     } catch (err) {
+      setNeedsVerify(err instanceof ApiError && err.code === 'EMAIL_NOT_VERIFIED');
       const r = formError(err);
       setError(r.message);
       setFields(r.fields);
@@ -63,6 +66,7 @@ export default function EventFormPage() {
     <form className="form wide" onSubmit={submit} noValidate>
       <h1>{editing ? 'Editează evenimentul' : 'Eveniment nou'}</h1>
       {error && <p className="alert err" role="alert">{error}</p>}
+      {needsVerify && <ResendVerificationButton className="btn ghost" />}
       <label>Titlu<input value={f.title} onChange={set('title')} /><FieldError error={fields.title} /></label>
       <label>Descriere<textarea rows={6} value={f.description} onChange={set('description')} /><FieldError error={fields.description} /></label>
       <div className="two">
