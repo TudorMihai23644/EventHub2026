@@ -3,12 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Registration } from './registration.entity';
 import { Event } from '../events/event.entity';
+import { Notifications } from '../mail/notifications.service';
 
 @Injectable()
 export class RegistrationsService {
   constructor(
     private readonly dataSource: DataSource,
     @InjectRepository(Registration) private readonly repo: Repository<Registration>,
+    private readonly notifications: Notifications,
   ) {}
 
   // Tranzacție + lock pe rândul evenimentului: două cereri simultane
@@ -24,7 +26,10 @@ export class RegistrationsService {
       if (existing) throw new ConflictException('Ești deja înscris la acest eveniment.');
       const taken = await m.count(Registration, { where: { eventId } });
       if (taken >= event.capacity) throw new ConflictException('Nu mai sunt locuri disponibile.');
-      return m.save(m.create(Registration, { userId, eventId }));
+      const saved = await m.save(m.create(Registration, { userId, eventId }));
+      // în aceeași tranzacție: dacă ceva eșuează, nu rămâne un email pentru o înscriere care nu există
+      await this.notifications.registrationCreated(m, { userId, event, taken: taken + 1 });
+      return saved;
     });
   }
 
@@ -39,6 +44,8 @@ export class RegistrationsService {
       }
       const res = await m.delete(Registration, { userId, eventId });
       if (!res.affected) throw new NotFoundException('Nu ești înscris la acest eveniment.');
+      const taken = await m.count(Registration, { where: { eventId } });
+      await this.notifications.registrationCancelled(m, { userId, event, taken });
     });
   }
 

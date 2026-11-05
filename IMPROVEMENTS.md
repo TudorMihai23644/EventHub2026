@@ -40,7 +40,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 | [3](#idea-3) | ❌ | ~~Delete dead frontend code~~ – cancelled, replaced by [#18](#idea-18) | Cleanup | XS | |
 | [4](#idea-4) | [x] | TypeORM migrations instead of `synchronize: true` | Production | S | |
 | [5](#idea-5) | [x] | Pagination on `GET /events` + `available` filter in SQL + single aggregate query for `summary` + safe search | Performance | M | 4 |
-| [6](#idea-6) | [ ] | Transactional email (Resend): registration confirmation, event changed/deleted notice | Feature + API | M | |
+| [6](#idea-6) | [x] | Transactional email (Resend): registration confirmation, event changed/deleted notice | Feature + API | M | |
 | [7](#idea-7) | [ ] | Password reset + email verification | Feature | M | 6 |
 | [8](#idea-8) | [ ] | Short access token + refresh token in httpOnly cookie, server-side logout/revocation | Security | M | |
 | [9](#idea-9) | [ ] | Waitlist with automatic promotion when someone cancels | Feature | M | 1, 6 |
@@ -458,9 +458,138 @@ Also found: `registrations` has no index on `eventId` (the `UNIQUE(userId, event
 <a id="idea-6"></a>
 ## 6. Transactional email (Resend)
 
-**Status:** idea · plan not written yet
+**Status:** ✅ done 2026-11-05 · 113/113 unit + 23/23 integration tests, 19/19 end-to-end checks (real API + fake Resend server), Docker image builds · **delivery to a real inbox (step 17) waits for an API key** · **Type:** Feature + API · **Effort:** M
 
-Registration confirmation, plus a notice to participants when an event is edited or deleted. Today, deleting an event quietly removes everyone's registration. Use Resend (or Postmark / SendGrid) instead of sending mail yourself.
+**Files changed:** new `backend/src/mail/` (`mail.config.ts`, `mailer.ts`, `resend.mailer.ts`, `log.mailer.ts`, `templates.ts`, `outbox.entity.ts`, `outbox-retry.ts`, `notifications.service.ts`, `outbox.worker.ts`, `mail.module.ts` + 3 unit specs + `mail.int-spec.ts`), new migration `1793886555958-AddEmailOutbox.ts`, `backend/src/registrations/registrations.service.ts` (+ module, spec), `backend/src/events/events.service.ts` (+ module, spec, int-spec), `backend/src/app.module.ts` (`ScheduleModule`), `backend/src/database/data-source.ts` (entity), `backend/src/test/int-db.ts`, new `backend/src/common/encoding.spec.ts`, `backend/package.json` (+ `resend` 6.37, `@nestjs/schedule` 4.1), `backend/Dockerfile` (Node 20 → 24), `docker-compose.yml`, `setup-secrets.ps1`, `setup-secrets.sh`, `backend/.env.example`, `README.md` (new "Email" section).
+
+**Checks:**
+
+| Check | Result |
+|---|---|
+| Unit: templates (Bucharest time, HTML escaping, no newlines in subject, links, old → new), retry rules, `ResendMailer` against a local fake Resend server (payload, `Authorization`, `Idempotency-Key`, `x-batch-validation: permissive`, per-index errors, 429 + `retry-after`, 403, 500, server down), mailer choice | ✅ 25 new |
+| Unit: services queue emails in the same transaction, nothing on rejection, "notify then delete" order | ✅ 8 new |
+| Does the escaping test catch a missing `escapeHtml`? | ✅ fails with it removed |
+| Integration (real Postgres): registration → 2 rows; rejected (full) → 0; rollback after queueing → 0; cancel → 2 with seats left; capacity-only edit → 0, date/location edit → 1 per participant; delete with 3 participants → 3 rows, event + registrations gone | ✅ |
+| Integration: worker sends due emails in one batch → `SENT`; temporary error → retry only after the delay; rejected address → only that one `FAILED`; **two workers at once on 150 emails → 100 + 50, each sent exactly once**; same batch → same idempotency key on retry | ✅ 5 runs in a row, no flakes |
+| End-to-end: compiled API + fake Resend: 9 emails for register ×2 / capacity edit / location edit / cancel / delete, delivered within one 15 s tick, 19:00 Bucharest for a 17:00 UTC event, escaped title, links, organizer seat counts, no duplicates, outbox all `SENT`; without a key → warning at startup, 2 emails logged, nothing sent | ✅ 19/19 |
+| `migration:check` | ✅ no changes |
+| Docker image (Node 24.22): `ro-RO` + `Europe/Bucharest` → "marți, 1 decembrie 2026 la 19:00"; SDK loads; 3 migrations inside | ✅ |
+
+**Differences from the plan / found along the way:**
+- **Organizer emails** added (decision 3): new registration and cancellation, with seats taken.
+- **Node 20 → 24 in the Dockerfile.** `resend` 6.37 requires Node ≥ 22.12, and Node 20 has been end-of-life since April 2026.
+- **Batch "permissive" mode:** one invalid address no longer fails the whole batch of 100; it alone becomes `FAILED` (no retry), the rest are sent.
+- **Idempotency key** per batch (hash of the email ids): if Resend accepted a batch but the reply was lost, the retry doesn't send it twice.
+- **Clock bug caught by the tests:** the worker first compared `sendAfter` (database clock, microseconds) with Node's clock (milliseconds), so a just-queued email could look "not due". Fixed: the worker uses the database clock (`SELECT now()`).
+- **`EventsService.remove` is now a locked transaction:** nobody can register between reading the participant list and deleting the event.
+- **Unrelated bug found and fixed while working:** `events.service.ts` had all Romanian letters double-encoded ("gÄƒsit" instead of "găsit") since commit `d5d89ce`, so several API error messages reached users garbled. Cause: my break-and-restore test in idea 5 used PowerShell's `Get-Content`, which reads UTF-8 as Windows-1252. Reversed exactly (diff against the last clean commit shows only idea 5's changes). New `common/encoding.spec.ts` fails the test suite if any `src/` file contains double-encoded text (checked: it catches the broken version).
+- Also fixed in `README.md`: a stray "Lr" at the start of two lines in "Secrete" (present since the initial commit, likely from one of my edits in idea 1) and a stray " ," in "Teste".
+
+The app sends no email today. The worst gap: when an organizer **deletes** an event, every registration is deleted with it (`ON DELETE CASCADE`) and the participants are never told. Same when the date or place changes.
+
+### Emails
+
+| When | To | Content |
+|---|---|---|
+| Registration succeeds | the participant | "Te-ai înscris la «Titlu»": date and time, location, link to the event |
+| Registration cancelled | the participant | short confirmation, link to the event |
+| Event's **date/time, location or title** changes | every registered participant | what changed (old → new), link |
+| Event deleted | every registered participant | "Evenimentul «Titlu» a fost anulat" with the date it was planned for |
+| Someone registers | the event's organizer | "«Nume» s-a înscris la «Titlu»", seats taken / capacity, link to the dashboard |
+| Someone cancels | the event's organizer | "«Nume» și-a anulat înscrierea la «Titlu»", seats taken / capacity |
+
+Changes to capacity or description alone send nothing (they don't affect someone who's coming).
+
+### Resend facts this plan relies on (checked 2026-11-05)
+
+- **Free plan:** 100 emails/day, 3,000/month; the daily quota resets at midnight UTC. ([quotas](https://resend.com/docs/knowledge-base/account-quotas-and-limits), [pricing](https://resend.com/pricing))
+- **Rate limit:** 10 requests/second per team, same on every plan; over it → 429 with `retry-after`. ([rate limit](https://resend.com/changelog/api-rate-limit))
+- **Batch API:** up to 100 emails in one request, counted as 1 request; the whole batch fails if one email in it is invalid. ([batch sending](https://resend.com/docs/dashboard/emails/batch-sending))
+- **Without your own domain**, the sender `onboarding@resend.dev` can only deliver to the email address of your Resend account; other recipients get a 403. `delivered@resend.dev` is a test recipient. Sending to real participants needs a verified domain. ([403 with resend.dev](https://resend.com/docs/knowledge-base/403-error-resend-dev-domain))
+
+### Part A: sending layer (`backend/src/mail/`)
+
+1. `Mailer` interface with one method, `sendBatch(messages)`, and two implementations:
+   - `ResendMailer`: the official `resend` Node SDK, batch endpoint.
+   - `LogMailer`: writes "would send: to, subject" to the log and sends nothing. **Used automatically when there's no API key**, so local development and tests never send real mail by accident.
+2. Configuration:
+   - `RESEND_API_KEY`: a secret, read like the others (`secrets/resend_api_key.txt` → `/run/secrets/…`, or `.env` locally). Empty → `LogMailer`, with one warning at startup.
+   - `MAIL_FROM`: default `EventHub <onboarding@resend.dev>`.
+   - `APP_URL`: the frontend's address for links in emails (default `http://localhost:5173`).
+   - `APP_TIMEZONE`: default `Europe/Bucharest`. **Needed:** the API container runs in UTC, so without it "19:00" would be written as "17:00" in the email.
+3. `setup-secrets.ps1` / `.sh` create an **empty** `resend_api_key.txt` if it's missing. Docker Compose refuses to start when a declared secret file doesn't exist, so this keeps `docker compose up` working for anyone without a key.
+
+### Part B: outbox (emails are queued in the database, then sent)
+
+Instead of calling Resend in the middle of a request, each action writes the emails it needs into a table, **in the same database transaction as the action itself**, and a background job sends them.
+
+4. New table `email_outbox` (migration): recipient, subject, HTML, text, kind, status (`PENDING` / `SENT` / `FAILED`), attempts, last error, `sendAfter`, `createdAt`, `sentAt`.
+5. Background job (`@nestjs/schedule`, every 15 seconds):
+   - takes up to 100 `PENDING` rows that are due, with `FOR UPDATE SKIP LOCKED` (two API instances never pick up the same email);
+   - sends them in **one** batch request;
+   - success → `SENT`. Failure → attempts + 1 and retry later (1, 2, 4, 8 minutes…; uses `retry-after` on a 429); after 5 failed attempts → `FAILED` with the error saved.
+
+**Why the outbox and not "just send it":**
+- **No wrong emails:** if registration fails (event just filled up) the transaction rolls back and the queued email disappears with it. Sending directly could confirm a registration that didn't happen, or the reverse.
+- **No lost emails:** if Resend is down, the API restarts, or the daily quota is used up, emails wait and go out later.
+- **Fast requests:** "Înscrie-te" doesn't wait for an outside service.
+- **Limits:** deleting an event with 300 participants = 3 batch requests, not 300 calls against the 10/second limit.
+- **History:** the table shows what was sent, when, and why something failed.
+- **Reused later:** [#7](#idea-7) password reset, [#9](#idea-9) waitlist and [#10](#idea-10) reminders all just add rows.
+
+### Part C: email content (`mail/templates.ts`)
+
+6. One pure function per email, returning `{ subject, html, text }` in Romanian. A plain-text version always goes too (better deliverability, readable anywhere).
+7. **HTML escaping** of everything an organizer typed (title, location, description). Otherwise `<a href=…>` in a title would become a real link inside the email.
+8. Dates formatted with `ro-RO` in `APP_TIMEZONE`; links built from `APP_URL` (`/events/:id`).
+9. Simple layout (inline styles: email clients ignore `<style>` files) in the app's black/red colours. The full neon look waits for [#18](#idea-18).
+
+### Part D: where emails are queued
+
+10. `RegistrationsService.register`: confirmation, inside the existing locked transaction.
+11. `RegistrationsService.cancel`: cancellation confirmation, inside the transaction from [#1](#idea-1).
+12. `EventsService.update`: inside its transaction (from [#1](#idea-1)), compares old and new **date/time, location, title**; if any changed, one email per registered participant.
+13. `EventsService.remove`: now a transaction: read the participants → queue "event cancelled" → delete the event. Today the registrations disappear first, and with them the list of people to tell.
+14. One email per person (never one email with everyone in To/CC), so participants' addresses stay private.
+
+### Part E: tests
+
+15. **Unit:** templates (escaping `<script>` in a title, the time in Europe/Bucharest, link built from `APP_URL`, old → new values); the job with a fake mailer (success → `SENT`; failure → attempts and the next retry time; 5th failure → `FAILED`; 429 uses `retry-after`); mailer choice (no key → `LogMailer`).
+16. **Database-backed** (`test:int`):
+    - successful registration → 1 row; registration rejected because the event is full → **0 rows** (proves the rollback);
+    - changing only the capacity → 0 rows; changing the date → 1 row per participant;
+    - deleting an event with 3 participants → 3 rows, event gone;
+    - two job runs at the same time → each email is sent once (`SKIP LOCKED`).
+17. **Real send (needs your key):** with `MAIL_FROM` = `onboarding@resend.dev`, register with your own Resend account's email address → the email arrives; check it in Gmail/Outlook (Romanian diacritics, time, link).
+
+### Part F: docs
+
+18. `README.md`: an "Email" section (what's sent and when, how to get a key, the `resend.dev` limitation and verifying a domain, `LogMailer` when there's no key, the free-tier quota) and the new env vars. `backend/.env.example`. In this file, tick item 6 as `[x]`.
+
+### How it affects the project
+
+| Area | Effect |
+|---|---|
+| **Users** | Participants get the 4 emails above. Nothing changes on screen. |
+| **API** | No route or response changes. Register / cancel / edit / delete each write a few more rows inside their transaction. |
+| **Database** | New table `email_outbox` (one migration). Rows stay as history; cleanup of old `SENT` rows can come later. |
+| **Without a key** | Everything works; emails are logged instead of sent. Tests never send. |
+| **Docker** | One new optional secret, `resend_api_key` (an empty file is fine). |
+| **Dependencies** | `resend` (official SDK), `@nestjs/schedule`. |
+| **Free-tier limit** | 100 emails/day. Deleting a big event can use the day's quota; the rest wait in the outbox and go out after midnight UTC. A real deployment would need a paid plan or patience. |
+| **Privacy** | Participants' emails go to Resend (it's the sender). Worth one line in a future privacy page. |
+| **Later items** | [#7](#idea-7), [#9](#idea-9), [#10](#idea-10) add rows to the outbox. [#10](#idea-10)'s reminders reuse `@nestjs/schedule`. |
+| **Risk** | Medium. New background job and an outside service; the outbox and the tests contain most of it. The main real-world risk is deliverability (spam folder) until a domain with SPF/DKIM is verified. |
+
+### Files to change
+
+New `backend/src/mail/` (`mail.module.ts`, `mailer.ts`, `resend.mailer.ts`, `log.mailer.ts`, `templates.ts`, `outbox.entity.ts`, `outbox.service.ts`, `outbox.worker.ts` + specs), new migration `…-AddEmailOutbox.ts`, `backend/src/registrations/registrations.service.ts`, `backend/src/events/events.service.ts`, `backend/src/app.module.ts`, `backend/src/database/data-source.ts` (entity list), `backend/package.json`, `docker-compose.yml` (secret + env vars), `setup-secrets.ps1`, `setup-secrets.sh`, `backend/.env.example`, `README.md`, new `*.int-spec.ts` tests.
+
+### Decisions (2026-11-05)
+
+1. **Testing without a Resend account:** Claude tests everything itself with `LogMailer`, and tests the real `ResendMailer` code against a **local fake Resend server** (same HTTP calls, nothing leaves the machine). Delivery to a real inbox (step 17) waits for the user's API key.
+2. **Outbox** (recommended option) chosen.
+3. **Organizer emails added:** the organizer also gets an email when someone **registers** or **cancels** for one of their events (one email per registration / cancellation). If that gets too noisy for popular events, a daily digest is a possible follow-up.
 
 [↑ Back to table of contents](#table-of-contents)
 
@@ -642,4 +771,6 @@ Make the unused "Pure Black & Red Neon 4K" design the app's real look, instead o
   - **Fix:** new `common/validation.ts` (shared by `main.ts` and the tests): `firstMessage()` reports "missing / wrong type" rules first (`isDefined`, `isString`, `isInt`, …), whatever the decorator order, which also fixes a missing `title` / `name` showing "maximum N characters". `capacity` got `@IsDefined` ("Capacitatea este obligatorie."). `UpdateEventDto` uses `PartialType(…, { skipNullProperties: false })`: a missing field stays optional, `null` is validated.
   - **Tests:** new `common/validation.spec.ts` through the real `ValidationPipe` (14 tests). Checked they fail with each half of the fix removed.
 - 2026-11-05 – Intermittent Jest warning "A worker process has failed to exit gracefully" (seen in 2 of ~10 parallel `npm test` runs on Windows). All tests pass; `--detectOpenHandles` in a single process finds nothing. Look again when setting up CI in [#13](#idea-13) (e.g. `--runInBand` or `workerIdleMemoryLimit`).
+- 2026-11-05 – Email follow-ups from [#6](#idea-6): (a) cleanup job for old `SENT` rows in `email_outbox` (they stay forever now); (b) a way for organizers/admins to see `FAILED` emails; (c) a daily digest option for organizers of popular events instead of one email per registration; (d) verify a real domain + SPF/DKIM before emailing real participants.
+- 2026-11-05 – `backend/package.json`: add `"engines": { "node": ">=22.12" }` (required by `resend`), and use `npm ci` instead of `npm install` in the Dockerfile for reproducible builds.
 - 2026-11-05 – Update outdated dependencies that `npm install` warns about (`glob`, `inflight`, `uuid`, pulled in by other packages), as part of [#13](#idea-13).

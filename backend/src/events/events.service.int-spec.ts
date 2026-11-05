@@ -5,6 +5,7 @@ import { ListEventsQuery } from './dto/event.dto';
 import { Registration } from '../registrations/registration.entity';
 import { Role, User } from '../users/user.entity';
 import { clearTables, openTestDb } from '../test/int-db';
+import { Notifications } from '../mail/notifications.service';
 
 const HOUR = 3_600_000;
 const inHours = (h: number) => new Date(Date.now() + h * HOUR);
@@ -23,7 +24,7 @@ describe('EventsService pe PostgreSQL (integrare)', () => {
     users = ds.getRepository(User);
     events = ds.getRepository(Event);
     regs = ds.getRepository(Registration);
-    service = new EventsService(events, regs, ds);
+    service = new EventsService(events, regs, ds, new Notifications({ appUrl: 'http://app.test', timeZone: 'Europe/Bucharest', from: 'x@test' }));
   });
   afterAll(() => ds?.destroy());
   beforeEach(() => clearTables(ds));

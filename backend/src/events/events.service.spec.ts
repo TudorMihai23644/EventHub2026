@@ -11,16 +11,22 @@ const base = {
 };
 
 function setup(event: Partial<Event> | null, taken = 0) {
+  const calls: string[] = []; // ordinea apelurilor, pentru „anunță înainte de ștergere”
   const manager: any = {
     findOne: jest.fn(async () => (event ? { ...event } : null)),
     count: jest.fn(async () => taken),
     save: jest.fn(async (e: object) => e),
+    remove: jest.fn(async () => calls.push('remove')),
+  };
+  const notifications: any = {
+    eventUpdated: jest.fn(async () => 0),
+    eventCancelled: jest.fn(async () => calls.push('eventCancelled')),
   };
   const dataSource: any = { transaction: (cb: (m: unknown) => unknown) => cb(manager) };
-  const service = new EventsService({} as any, {} as any, dataSource);
+  const service = new EventsService({} as any, {} as any, dataSource, notifications);
   // findOne reîncarcă evenimentul după salvare; aici testăm doar regulile din tranzacție
   jest.spyOn(service, 'findOne').mockResolvedValue({ id: 'e1' } as any);
-  return { service, manager };
+  return { service, manager, notifications, calls };
 }
 
 describe('EventsService.update', () => {
@@ -46,5 +52,37 @@ describe('EventsService.update', () => {
   it('returnează 404 pentru un eveniment inexistent', async () => {
     const { service } = setup(null);
     await expect(service.update(owner, 'nope', { title: 'Alt titlu' })).rejects.toThrow(NotFoundException);
+  });
+
+  it('trimite la notificări starea de dinainte și cea de după, în aceeași tranzacție', async () => {
+    const { service, manager, notifications } = setup(base);
+    await service.update(owner, 'e1', { title: 'Titlu nou', location: 'Cluj' });
+    expect(notifications.eventUpdated).toHaveBeenCalledWith(
+      manager,
+      expect.objectContaining({ title: 'Titlu', location: 'Brașov' }),
+      expect.objectContaining({ title: 'Titlu nou', location: 'Cluj' }),
+    );
+  });
+
+  it('nu notifică nimic dacă modificarea este respinsă', async () => {
+    const { service, notifications } = setup(base, 9);
+    await expect(service.update(owner, 'e1', { capacity: 8 })).rejects.toThrow(BadRequestException);
+    expect(notifications.eventUpdated).not.toHaveBeenCalled();
+  });
+});
+
+describe('EventsService.remove', () => {
+  it('blochează evenimentul, anunță participanții, apoi șterge', async () => {
+    const { service, manager, calls } = setup(base);
+    await service.remove('org1', 'e1');
+    expect(manager.findOne).toHaveBeenCalledWith(Event, expect.objectContaining({ lock: { mode: 'pessimistic_write' } }));
+    expect(calls).toEqual(['eventCancelled', 'remove']);
+  });
+
+  it('alt organizator nu poate șterge și nu se trimite nimic', async () => {
+    const { service, manager, notifications } = setup(base);
+    await expect(service.remove('org2', 'e1')).rejects.toThrow(ForbiddenException);
+    expect(notifications.eventCancelled).not.toHaveBeenCalled();
+    expect(manager.remove).not.toHaveBeenCalled();
   });
 });

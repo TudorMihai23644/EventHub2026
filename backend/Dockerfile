@@ -1,11 +1,12 @@
-FROM node:20-alpine AS build
+# Node 24 (LTS). Node 20 nu mai primește actualizări din aprilie 2026, iar SDK-ul resend cere Node >= 22.12.
+FROM node:24-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
 RUN npm run build && npm prune --omit=dev
 
-FROM node:20-alpine
+FROM node:24-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules

@@ -18,4 +18,10 @@ if (Missing 'organizer_invite_code.txt') {
   $code = Read-Host 'Cod de invitatie pentru organizatori'
   Write-Secret 'organizer_invite_code.txt' $code.Trim()
 }
+# Optional: cheia Resend pentru emailuri. Gol = emailurile sunt doar scrise in log, nu se trimit.
+# Fisierul trebuie sa existe (chiar gol), altfel docker compose nu porneste.
+if (Missing 'resend_api_key.txt') {
+  $key = Read-Host 'Cheia Resend (optional; Enter = fara emailuri reale)'
+  Write-Secret 'resend_api_key.txt' $key.Trim()
+}
 Write-Host 'Gata. Secretele sunt in .\secrets (ignorate de Git).'

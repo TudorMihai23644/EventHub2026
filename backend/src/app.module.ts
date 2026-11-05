@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { throttlerOptions } from './common/security';
 import { HealthController } from './health.controller';
 import { AuthModule } from './auth/auth.module';
@@ -16,6 +17,7 @@ import { dataSourceOptions } from './database/data-source';
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
   imports: [
     ThrottlerModule.forRoot(throttlerOptions),
+    ScheduleModule.forRoot(), // OutboxWorker (trimiterea emailurilor din coadă)
     // Schema se creează și se modifică doar prin migrări, rulate la pornire (vezi database/data-source.ts).
     TypeOrmModule.forRootAsync({ useFactory: () => dataSourceOptions() }),
     UsersModule,

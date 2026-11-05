@@ -36,10 +36,16 @@ services:
       DB_PASSWORD_FILE: /run/secrets/db_password
       JWT_SECRET_FILE: /run/secrets/jwt_secret
       ORGANIZER_INVITE_CODE_FILE: /run/secrets/organizer_invite_code
+      # Emailuri (vezi README, „Email”). Fără cheie Resend, emailurile sunt doar scrise în log.
+      RESEND_API_KEY_FILE: /run/secrets/resend_api_key
+      MAIL_FROM: ${MAIL_FROM:-EventHub <onboarding@resend.dev>}
+      APP_URL: ${APP_URL:-http://localhost:5173}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Europe/Bucharest}
     secrets:
       - db_password
       - jwt_secret
       - organizer_invite_code
+      - resend_api_key
     ports:
       - "3000:3000"
     depends_on:
@@ -58,6 +64,8 @@ secrets:
     file: ./secrets/jwt_secret.txt
   organizer_invite_code:
     file: ./secrets/organizer_invite_code.txt
+  resend_api_key:
+    file: ./secrets/resend_api_key.txt # poate fi gol
 
 volumes:
   pgdata:

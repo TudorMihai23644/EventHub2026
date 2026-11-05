@@ -8,6 +8,7 @@ import { AuthUser } from '../auth/roles';
 import { buildEventView } from './event-view';
 import { escapeLike } from '../common/escape-like';
 import { paginated } from '../common/paginated';
+import { Notifications, info } from '../mail/notifications.service';
 
 @Injectable()
 export class EventsService {
@@ -15,6 +16,7 @@ export class EventsService {
     @InjectRepository(Event) private readonly repo: Repository<Event>,
     @InjectRepository(Registration) private readonly regs: Repository<Registration>,
     private readonly dataSource: DataSource,
+    private readonly notifications: Notifications,
   ) {}
 
   private base() {
@@ -101,6 +103,7 @@ export class EventsService {
         await m.findOne(Event, { where: { id }, lock: { mode: 'pessimistic_write' } }),
         user.id,
       );
+      const before = info(event); // pentru emailul „s-a schimbat evenimentul”
       if (dto.startsAt !== undefined) {
         const next = new Date(dto.startsAt);
         if (next.getTime() !== event.startsAt.getTime()) event.startsAt = this.parseFutureDate(dto.startsAt);
@@ -116,6 +119,8 @@ export class EventsService {
       if (dto.description !== undefined) event.description = dto.description;
       if (dto.location !== undefined) event.location = dto.location;
       await m.save(event);
+      // email doar dacă s-au schimbat titlul, data/ora sau locația
+      await this.notifications.eventUpdated(m, before, event);
     });
     return this.findOne(id, user);
   }
@@ -134,9 +139,17 @@ export class EventsService {
     }));
   }
 
+  // Participanții sunt anunțați înainte de ștergere: după ea, înscrierile (și lista lor) nu mai există.
+  // Lock ca la înscriere: nimeni nu se poate înscrie între citirea listei și ștergere.
   async remove(userId: string, id: string) {
-    const event = await this.owned(userId, id);
-    await this.repo.remove(event);
+    await this.dataSource.transaction(async (m) => {
+      const event = this.assertOwner(
+        await m.findOne(Event, { where: { id }, lock: { mode: 'pessimistic_write' } }),
+        userId,
+      );
+      await this.notifications.eventCancelled(m, event);
+      await m.remove(event);
+    });
   }
 
   private async owned(userId: string, id: string) {

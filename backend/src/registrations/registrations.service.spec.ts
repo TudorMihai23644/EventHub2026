@@ -13,7 +13,8 @@ function setup(event: Partial<Event> | null, existing: unknown, taken: number, d
     delete: jest.fn(async () => ({ affected: deleted })),
   };
   const dataSource: any = { transaction: (cb: (m: unknown) => unknown) => cb(manager) };
-  return { service: new RegistrationsService(dataSource, {} as any), manager };
+  const notifications: any = { registrationCreated: jest.fn(), registrationCancelled: jest.fn() };
+  return { service: new RegistrationsService(dataSource, {} as any, notifications), manager, notifications };
 }
 
 describe('RegistrationsService.register', () => {
@@ -23,6 +24,18 @@ describe('RegistrationsService.register', () => {
     const { service, manager } = setup(future, null, 1);
     await expect(service.register('u1', 'e1')).resolves.toMatchObject({ userId: 'u1', eventId: 'e1' });
     expect(manager.save).toHaveBeenCalled();
+  });
+
+  it('pune emailurile în coadă în aceeași tranzacție, cu locurile ocupate după înscriere', async () => {
+    const { service, manager, notifications } = setup(future, null, 1);
+    await service.register('u1', 'e1');
+    expect(notifications.registrationCreated).toHaveBeenCalledWith(manager, { userId: 'u1', event: future, taken: 2 });
+  });
+
+  it('nu pune niciun email în coadă dacă înscrierea este respinsă', async () => {
+    const { service, notifications } = setup(future, null, 2);
+    await expect(service.register('u1', 'e1')).rejects.toThrow(ConflictException);
+    expect(notifications.registrationCreated).not.toHaveBeenCalled();
   });
 
   it('respinge înscrierea duplicată', async () => {
@@ -64,8 +77,15 @@ describe('RegistrationsService.cancel', () => {
   });
 
   it('returnează 404 dacă participantul nu este înscris', async () => {
-    const { service } = setup(future, null, 0, 0);
+    const { service, notifications } = setup(future, null, 0, 0);
     await expect(service.cancel('u1', 'e1')).rejects.toThrow('Nu ești înscris la acest eveniment.');
+    expect(notifications.registrationCancelled).not.toHaveBeenCalled();
+  });
+
+  it('după anulare, pune emailurile în coadă cu locurile rămase ocupate', async () => {
+    const { service, manager, notifications } = setup(future, null, 1);
+    await service.cancel('u1', 'e1');
+    expect(notifications.registrationCancelled).toHaveBeenCalledWith(manager, { userId: 'u1', event: future, taken: 1 });
   });
 
   it('returnează 404 pentru un eveniment inexistent', async () => {
