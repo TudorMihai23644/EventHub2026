@@ -14,7 +14,8 @@ function setup(event: Partial<Event> | null, existing: unknown, taken: number, d
   };
   const dataSource: any = { transaction: (cb: (m: unknown) => unknown) => cb(manager) };
   const notifications: any = { registrationCreated: jest.fn(), registrationCancelled: jest.fn() };
-  return { service: new RegistrationsService(dataSource, {} as any, notifications), manager, notifications };
+  const waitlist: any = { promote: jest.fn(async () => 0) };
+  return { service: new RegistrationsService(dataSource, {} as any, notifications, waitlist), manager, notifications, waitlist };
 }
 
 describe('RegistrationsService.register', () => {
@@ -80,6 +81,18 @@ describe('RegistrationsService.cancel', () => {
     const { service, notifications } = setup(future, null, 0, 0);
     await expect(service.cancel('u1', 'e1')).rejects.toThrow('Nu ești înscris la acest eveniment.');
     expect(notifications.registrationCancelled).not.toHaveBeenCalled();
+  });
+
+  it('după anulare, locul eliberat merge la lista de așteptare, în aceeași tranzacție', async () => {
+    const { service, manager, waitlist } = setup(future, null, 1);
+    await service.cancel('u1', 'e1');
+    expect(waitlist.promote).toHaveBeenCalledWith(manager, future);
+  });
+
+  it('anulare respinsă: nicio promovare', async () => {
+    const { service, waitlist } = setup({ ...future, startsAt: inDays(-1) }, null, 1);
+    await expect(service.cancel('u1', 'e1')).rejects.toThrow(BadRequestException);
+    expect(waitlist.promote).not.toHaveBeenCalled();
   });
 
   it('după anulare, pune emailurile în coadă cu locurile rămase ocupate', async () => {

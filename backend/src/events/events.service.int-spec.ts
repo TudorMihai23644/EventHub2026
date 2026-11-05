@@ -6,6 +6,7 @@ import { Registration } from '../registrations/registration.entity';
 import { Role, User } from '../users/user.entity';
 import { clearTables, openTestDb } from '../test/int-db';
 import { Notifications } from '../mail/notifications.service';
+import { WaitlistService } from '../waitlist/waitlist.service';
 
 const HOUR = 3_600_000;
 const inHours = (h: number) => new Date(Date.now() + h * HOUR);
@@ -24,7 +25,8 @@ describe('EventsService pe PostgreSQL (integrare)', () => {
     users = ds.getRepository(User);
     events = ds.getRepository(Event);
     regs = ds.getRepository(Registration);
-    service = new EventsService(events, regs, ds, new Notifications({ appUrl: 'http://app.test', timeZone: 'Europe/Bucharest', from: 'x@test' }));
+    const notifications = new Notifications({ appUrl: 'http://app.test', timeZone: 'Europe/Bucharest', from: 'x@test' });
+    service = new EventsService(events, regs, ds, notifications, new WaitlistService(ds, notifications));
   });
   afterAll(() => ds?.destroy());
   beforeEach(() => clearTables(ds));
@@ -162,12 +164,12 @@ describe('EventsService pe PostgreSQL (integrare)', () => {
       await register(p2, future);
       await register(p1, await event(other)); // alt organizator: nu se numără
 
-      expect(await service.summary(org.id)).toEqual({ eventsCount: 5, upcomingCount: 3, totalRegistrations: 4 });
+      expect(await service.summary(org.id)).toEqual({ eventsCount: 5, upcomingCount: 3, totalRegistrations: 4, totalWaiting: 0 });
     });
 
     it('întoarce zero pentru un organizator fără evenimente', async () => {
       const org = await user('ORGANIZER');
-      expect(await service.summary(org.id)).toEqual({ eventsCount: 0, upcomingCount: 0, totalRegistrations: 0 });
+      expect(await service.summary(org.id)).toEqual({ eventsCount: 0, upcomingCount: 0, totalRegistrations: 0, totalWaiting: 0 });
     });
   });
 });

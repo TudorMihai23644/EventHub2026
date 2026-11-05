@@ -9,6 +9,7 @@ import { buildEventView } from './event-view';
 import { escapeLike } from '../common/escape-like';
 import { paginated } from '../common/paginated';
 import { Notifications, info } from '../mail/notifications.service';
+import { WaitlistService } from '../waitlist/waitlist.service';
 
 @Injectable()
 export class EventsService {
@@ -17,6 +18,7 @@ export class EventsService {
     @InjectRepository(Registration) private readonly regs: Repository<Registration>,
     private readonly dataSource: DataSource,
     private readonly notifications: Notifications,
+    private readonly waitlist: WaitlistService,
   ) {}
 
   private base() {
@@ -24,18 +26,21 @@ export class EventsService {
       .createQueryBuilder('e')
       .leftJoin('e.organizer', 'o')
       .addSelect(['o.id', 'o.name'])
-      .loadRelationCountAndMap('e.registeredCount', 'e.registrations');
+      .loadRelationCountAndMap('e.registeredCount', 'e.registrations')
+      .loadRelationCountAndMap('e.waitlistCount', 'e.waitlist');
   }
 
   private async views(events: Event[], viewer?: AuthUser) {
     let registered = new Set<string>();
+    let positions = new Map<string, number>();
     if (viewer?.role === 'PARTICIPANT' && events.length) {
-      const rows = await this.regs.find({
-        where: { userId: viewer.id, eventId: In(events.map((e) => e.id)) },
-      });
+      const ids = events.map((e) => e.id);
+      const rows = await this.regs.find({ where: { userId: viewer.id, eventId: In(ids) } });
       registered = new Set(rows.map((r) => r.eventId));
+      positions = await this.waitlist.positions(viewer.id, ids);
     }
-    return events.map((e) => buildEventView(e, viewer, registered.has(e.id)));
+    const now = Date.now();
+    return events.map((e) => buildEventView(e, viewer, registered.has(e.id), now, positions.get(e.id) ?? null));
   }
 
   // Paginat; toate filtrele rulează în baza de date, deci `total` numără exact ce corespunde filtrelor.
@@ -67,19 +72,23 @@ export class EventsService {
 
   // O singură interogare agregată, fără a încărca evenimentele.
   async summary(organizerId: string) {
+    // Două LEFT JOIN-uri înmulțesc rândurile (înscrieri × așteptare), deci totul se numără DISTINCT.
     const row = await this.repo
       .createQueryBuilder('e')
       .leftJoin('e.registrations', 'r')
+      .leftJoin('e.waitlist', 'w')
       .select('COUNT(DISTINCT e.id)', 'eventsCount')
       .addSelect('COUNT(DISTINCT e.id) FILTER (WHERE e.startsAt > now())', 'upcomingCount')
-      .addSelect('COUNT(r.id)', 'totalRegistrations')
+      .addSelect('COUNT(DISTINCT r.id)', 'totalRegistrations')
+      .addSelect('COUNT(DISTINCT w.id)', 'totalWaiting')
       .where('e.organizerId = :id', { id: organizerId })
-      .getRawOne<{ eventsCount: string; upcomingCount: string; totalRegistrations: string }>();
+      .getRawOne<{ eventsCount: string; upcomingCount: string; totalRegistrations: string; totalWaiting: string }>();
     // PostgreSQL întoarce COUNT ca text (bigint)
     return {
       eventsCount: Number(row?.eventsCount ?? 0),
       upcomingCount: Number(row?.upcomingCount ?? 0),
       totalRegistrations: Number(row?.totalRegistrations ?? 0),
+      totalWaiting: Number(row?.totalWaiting ?? 0),
     };
   }
 
@@ -104,6 +113,7 @@ export class EventsService {
         user.id,
       );
       const before = info(event); // pentru emailul „s-a schimbat evenimentul”
+      const oldCapacity = event.capacity;
       if (dto.startsAt !== undefined) {
         const next = new Date(dto.startsAt);
         if (next.getTime() !== event.startsAt.getTime()) event.startsAt = this.parseFutureDate(dto.startsAt);
@@ -118,7 +128,11 @@ export class EventsService {
       if (dto.title !== undefined) event.title = dto.title;
       if (dto.description !== undefined) event.description = dto.description;
       if (dto.location !== undefined) event.location = dto.location;
+      const capacityUp = dto.capacity !== undefined && dto.capacity > oldCapacity;
       await m.save(event);
+      // Locurile noi merg la lista de așteptare. Întâi promovarea: cei înscriși acum primesc apoi emailul de
+      // modificare ca participanți, nu ca oameni care așteaptă.
+      if (capacityUp) await this.waitlist.promote(m, event);
       // email doar dacă s-au schimbat titlul, data/ora sau locația
       await this.notifications.eventUpdated(m, before, event);
     });

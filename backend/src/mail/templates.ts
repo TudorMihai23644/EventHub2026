@@ -112,21 +112,54 @@ export function eventChanges(cfg: Cfg, before: EventInfo, after: EventInfo): [st
   return changes;
 }
 
-export function eventUpdated(cfg: Cfg, d: { name: string; before: EventInfo; after: EventInfo }): EmailContent {
+/** `waiting`: destinatarul este pe lista de așteptare, nu înscris. */
+export function eventUpdated(cfg: Cfg, d: { name: string; before: EventInfo; after: EventInfo; waiting?: boolean }): EmailContent {
+  const intro = d.waiting
+    ? 'Organizatorul a modificat un eveniment pentru care ești pe lista de așteptare. Locul tău pe listă rămâne același.'
+    : 'Organizatorul a modificat un eveniment la care ești înscris. Înscrierea ta rămâne valabilă.';
   return render(cfg, `S-a schimbat evenimentul „${d.after.title}”`, {
     heading: `Modificări la „${d.after.title}”`,
-    lines: [`Bună, ${d.name}! Organizatorul a modificat un eveniment la care ești înscris. Înscrierea ta rămâne valabilă.`],
+    lines: [`Bună, ${d.name}! ${intro}`],
     facts: eventChanges(cfg, d.before, d.after),
     button: { label: 'Vezi evenimentul', url: eventUrl(cfg, d.after.id) },
   });
 }
 
-export function eventCancelled(cfg: Cfg, d: { name: string; event: EventInfo }): EmailContent {
+export function eventCancelled(cfg: Cfg, d: { name: string; event: EventInfo; waiting?: boolean }): EmailContent {
+  const what = d.waiting
+    ? 'Organizatorul a anulat evenimentul pentru care erai pe lista de așteptare.'
+    : 'Organizatorul a anulat evenimentul la care erai înscris, iar înscrierea ta a fost ștearsă.';
   return render(cfg, `Evenimentul „${d.event.title}” a fost anulat`, {
     heading: `„${d.event.title}” a fost anulat`,
-    lines: [`Bună, ${d.name}! Organizatorul a anulat evenimentul la care erai înscris, iar înscrierea ta a fost ștearsă.`],
+    lines: [`Bună, ${d.name}! ${what}`],
     facts: [['Era programat', formatDate(d.event.startsAt, cfg.timeZone)], ['Unde', d.event.location]],
     button: { label: 'Vezi alte evenimente', url: `${cfg.appUrl}/` },
+  });
+}
+
+// ---------- listă de așteptare ----------
+
+export function waitlistJoined(cfg: Cfg, d: { name: string; event: EventInfo; position: number }): EmailContent {
+  return render(cfg, `Ești pe lista de așteptare pentru „${d.event.title}”`, {
+    heading: 'Ești pe lista de așteptare',
+    lines: [
+      `Bună, ${d.name}! Evenimentul „${d.event.title}” este plin, dar te-am trecut pe lista de așteptare, pe locul ${d.position}.`,
+      'Dacă se eliberează un loc, te înscriem automat și îți scriem imediat. Poți ieși oricând de pe listă din pagina evenimentului.',
+    ],
+    facts: eventFacts(cfg, d.event),
+    button: { label: 'Vezi evenimentul', url: eventUrl(cfg, d.event.id) },
+  });
+}
+
+export function waitlistPromoted(cfg: Cfg, d: { name: string; event: EventInfo }): EmailContent {
+  return render(cfg, `Ai primit un loc la „${d.event.title}”`, {
+    heading: 'Ai primit un loc!',
+    lines: [
+      `Bună, ${d.name}! S-a eliberat un loc la „${d.event.title}”, iar tu erai primul pe lista de așteptare: acum ești înscris.`,
+      'Dacă nu mai poți veni, anulează înscrierea din pagina evenimentului, ca locul să ajungă la următoarea persoană.',
+    ],
+    facts: eventFacts(cfg, d.event),
+    button: { label: 'Vezi evenimentul', url: eventUrl(cfg, d.event.id) },
   });
 }
 
@@ -179,12 +212,15 @@ interface OrganizerData {
   event: EventInfo;
   taken: number;
   capacity: number;
+  /** Înscris automat de pe lista de așteptare. */
+  fromWaitlist?: boolean;
 }
 
 export function organizerNewRegistration(cfg: Cfg, d: OrganizerData): EmailContent {
-  return render(cfg, `Înscriere nouă: ${d.participantName} la „${d.event.title}”`, {
+  const how = d.fromWaitlist ? ' (de pe lista de așteptare)' : '';
+  return render(cfg, `Înscriere nouă: ${d.participantName} la „${d.event.title}”${how}`, {
     heading: 'Înscriere nouă',
-    lines: [`Bună, ${d.organizerName}! ${d.participantName} s-a înscris la „${d.event.title}”.`],
+    lines: [`Bună, ${d.organizerName}! ${d.participantName} s-a înscris la „${d.event.title}”${how}.`],
     facts: [['Locuri ocupate', `${d.taken} din ${d.capacity}`], ['Când', formatDate(d.event.startsAt, cfg.timeZone)]],
     button: { label: 'Deschide panoul', url: `${cfg.appUrl}/organizator` },
   });

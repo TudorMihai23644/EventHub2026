@@ -43,7 +43,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 | [6](#idea-6) | [x] | Transactional email (Resend): registration confirmation, event changed/deleted notice | Feature + API | M | |
 | [7](#idea-7) | [x] | Password reset + email verification | Feature | M | 6 |
 | [8](#idea-8) | [x] | Short access token + refresh token in httpOnly cookie, server-side logout/revocation | Security | M | |
-| [9](#idea-9) | [ ] | Waitlist with automatic promotion when someone cancels | Feature | M | 1, 6 |
+| [9](#idea-9) | [x] | Waitlist with automatic promotion when someone cancels | Feature | M | 1, 6 |
 | [10](#idea-10) | [ ] | 24h reminders (`@nestjs/schedule`) + `.ics` download + "Add to Google Calendar" link | Feature | S–M | 6 |
 | [11](#idea-11) | [ ] | Event fields: `endsAt`, category/tags, cover image (Cloudinary), online/physical + link | Feature + API | M | |
 | [12](#idea-12) | [ ] | Organizer tools: CSV export of attendees, analytics (registrations over time, no-show rate) | Feature | S–M | |
@@ -828,9 +828,114 @@ Backend: new `auth/refresh-token.entity.ts`, `auth/sessions.service.ts` (+ spec,
 <a id="idea-9"></a>
 ## 9. Waitlist with automatic promotion
 
-**Status:** idea · plan not written yet · **Depends on:** [1](#idea-1), [6](#idea-6)
+**Status:** ✅ done 2026-11-05 · 168/168 unit + 63/63 integration tests, 19/19 end-to-end checks (compiled API + fake Resend), backend and frontend build · **browser check of the new buttons/sections still to do** · **Type:** Feature · **Effort:** M · **Builds on:** [#1](#idea-1), [#6](#idea-6), [#7](#idea-7)
 
-When an event is full, people can queue; the first in line is promoted automatically when someone cancels (inside the locked cancel transaction from idea 1).
+**Files changed:** backend: new `waitlist/` (`waitlist-entry.entity.ts`, `waitlist.service.ts`, `waitlist.controller.ts`, `waitlist.module.ts`, `waitlist.int-spec.ts`), migration `1793906588653-AddWaitlist.ts`; changed `events/event.entity.ts` (relation), `events/event-view.ts` (+ spec), `events/events.service.ts` (+ spec, int-spec), `events/events.module.ts`, `registrations/registrations.service.ts` (+ spec), `registrations/registrations.module.ts`, `mail/templates.ts`, `mail/notifications.service.ts`, `mail/mail.int-spec.ts`, `common/routes.ts`, `database/data-source.ts`, `test/int-db.ts`. Frontend: `types.ts`, `endpoints.ts`, `ui.tsx`, `pages/EventDetailPage.tsx`, `pages/MyRegistrationsPage.tsx`, `pages/DashboardPage.tsx`, `styles.css`. `README.md` (new "Lista de așteptare" section, routes).
+
+**Checks:**
+
+| Check | Result |
+|---|---|
+| Unit: view flags for full / free / waiting / registered / past / organizer / visitor / unverified; cancel promotes in the same transaction, rejected cancel doesn't; capacity up → promote **before** the change email, down / equal / unchanged → no promotion | ✅ 10 new |
+| Integration: join only when full, in arrival order; free seats → `SEATS_AVAILABLE`; not twice / not when registered / not for past events; leaving moves others up; a cancellation registers the first person + both emails; capacity +3 with 5 waiting → exactly the first 3; **two simultaneous cancellations → two different people, never over capacity**; **join racing a cancellation (5 rounds) → invariant holds**; no promotion after the start; positions, "my waitlists", owner list + 403 for others, `totalWaiting`; waiting people get the change / cancellation emails with waitlist wording | ✅ 12 new |
+| Does the race test catch a missing lock on join? | ✅ fails with the lock removed |
+| End-to-end via HTTP: free seats → 409; positions 1-2-3; double join → 409; unverified → 403 (guard order right); organizer → 403; place shown; public list shows count only; cancellation → first in line registered + "Ai primit un loc" + organizer email; positions shift; owner list, summary, "my waitlists"; capacity 2 → 4 → rest registered; exactly 3 promotion emails; DB 4/4, nobody waiting | ✅ 19/19 |
+| `migration:check` | ✅ |
+
+**Differences from the plan:**
+- **"My waitlists" is its own route, `GET /waitlist/me`,** instead of extra fields in `GET /registrations/me`: that response stays exactly as it was.
+- `mustVerifyEmail` is now also true for an unverified participant on a **full** event (they could join the queue after confirming). One existing test was updated on purpose for this.
+- When capacity goes up and the date changes in one edit, promotion runs first, so the newly registered get the change email as participants.
+
+### Problem
+
+When an event is full, a participant only sees "Locuri epuizate" and leaves. If someone cancels later, the seat sits empty until a random visitor happens to check the page at the right moment. The organizer can't see how much more demand there was.
+
+### How it will work
+
+- A participant (with a confirmed email) can join the **waitlist** of a **full** upcoming event: "Intră pe lista de așteptare". They see their place: "Ești pe locul 3 din 7 pe lista de așteptare".
+- When a seat frees up (someone cancels, or the organizer raises the capacity), the **first person in line is registered automatically** and gets an email "Ai primit un loc la «Titlu»". They can cancel like any registration if they no longer want it, and the seat goes to the next person (decision 1).
+- **Invariant:** an event never has free seats while someone is waiting. Every action that changes seats or the queue runs under the same row lock on the event (the one from [#1](#idea-1)), so this holds even under simultaneous requests.
+
+### Part A: data
+
+1. New table `waitlist_entries` (migration): `userId`, `eventId`, `createdAt`; `UNIQUE(userId, eventId)`; index on `(eventId, createdAt)` for "first in line". Order is first come, first served (`createdAt`, then `id`).
+2. A **separate table** rather than a status column on `registrations`: every place that counts registrations today (seats taken, capacity checks, attendee list, organizer summary, emails) keeps working unchanged and can't accidentally count people who are only waiting.
+
+### Part B: rules (backend)
+
+3. `POST /events/:id/waitlist` (participant, verified email): allowed only when the event is upcoming and **full**, and the user is neither registered nor already waiting. Otherwise:
+   - seats available → `409` "Mai sunt locuri: te poți înscrie direct." (the page shows "Înscrie-te" anyway);
+   - already registered / already waiting → `409`;
+   - past event → `400`.
+4. `DELETE /events/:id/waitlist`: leave the queue (`204`; `404` if not in it).
+5. **Promotion** (`promoteFromWaitlist(m, event)`, inside the caller's locked transaction): while there are free seats and people waiting, the first person is moved from the waitlist to `registrations`. Called from:
+   - `RegistrationsService.cancel`: one seat freed → up to one promotion;
+   - `EventsService.update` when capacity goes **up**: up to as many promotions as new seats;
+   - **not** after the event has started (no point; the queue just stays as history until the event is deleted).
+6. `EventsService.remove`: waiting people are told too ("evenimentul a fost anulat"), then the queue is deleted with the event (`ON DELETE CASCADE`).
+7. A participant who registers normally while also on the waitlist can't happen (registration needs free seats, and free seats mean an empty queue), but the code removes any leftover entry defensively.
+8. `GET /events/:id/waitlist` (owner): who's waiting, in order; `GET /registrations/me` also returns the user's waitlist entries with their position.
+
+### Part C: what the API returns
+
+9. Event view (`event-view.ts`) gains: `waitlistCount`, `isWaitlisted`, `waitlistPosition` (1-based, or null), `canJoinWaitlist`, `canLeaveWaitlist`. As with the other flags, the frontend only displays them.
+10. Organizer summary (`/events/mine/summary`) gains `totalWaiting`.
+
+### Part D: emails (through the outbox)
+
+| When | To | Content |
+|---|---|---|
+| Joins the waitlist | participant | "Ești pe lista de așteptare pentru «Titlu», locul N" |
+| Promoted | participant | "Ai primit un loc la «Titlu»" + date/place + "dacă nu mai poți veni, anulează ca locul să ajungă la următorul" |
+| Promoted | organizer | the existing "Înscriere nouă" email, with "(de pe lista de așteptare)" |
+| Event changed / deleted | waiting people too (decision 4) | the existing emails from [#6](#idea-6), worded for the waitlist |
+
+### Part E: frontend
+
+11. Event page: when full → "Intră pe lista de așteptare" (plus how many are waiting); when waiting → "Ești pe locul X din Y" + "Ieși de pe listă".
+12. Events list: full events show "Plin · 4 în așteptare".
+13. "Înscrierile mele": a second section, "Liste de așteptare", with position and a leave button.
+14. Organizer dashboard: per event "N în așteptare" and a "Vezi lista de așteptare" toggle like the attendee list; the summary line mentions the total waiting.
+
+### Part F: tests and docs
+
+15. **Unit:** event-view flags for every case (full / not full / waiting / registered / past / organizer / visitor / unverified); new email templates.
+16. **Database-backed:**
+    - join only when full; not twice; not when registered; not for past events; unverified → 403;
+    - a cancellation promotes the **first** person (first come, first served), moves them to registrations, queues the 2 emails;
+    - capacity raised by 3 with 5 waiting → exactly the first 3 promoted;
+    - **two cancellations at the same moment → two different people promoted**, never the same one twice, never more registrations than capacity;
+    - a join and a cancellation at the same moment → the invariant still holds (no free seat while someone waits);
+    - leaving the queue moves everyone behind up one place;
+    - deleting the event emails the waiting people and removes the queue;
+    - a capacity raise on a past event promotes nobody.
+17. **End-to-end via HTTP:** fill an event, 3 people join the waitlist, positions 1–3; one registered user cancels → person 1 is registered and the fake Resend server receives "Ai primit un loc"; positions shift; organizer raises capacity by 2 → the rest promoted.
+18. `README.md`: waitlist rules, new routes, new view fields. In this file, tick item 9 as `[x]`.
+
+### How it affects the project
+
+| Area | Effect |
+|---|---|
+| **Participants** | Can queue for full events and get the seat automatically when one frees up. |
+| **Organizers** | See demand beyond capacity; raising capacity fills seats from the queue immediately. |
+| **API** | 3 new routes; event responses and `/registrations/me` gain waitlist fields; summary gains `totalWaiting`. Existing fields unchanged. |
+| **Database** | New table `waitlist_entries` (one migration). `registrations` unchanged. |
+| **Emails** | Up to 3 more kinds; a cancellation with a queue now sends 2 more emails (promoted person + organizer). Counts toward Resend's free 100/day. |
+| **Concurrency** | All seat/queue changes share the event row lock from [#1](#idea-1); tested with simultaneous requests. |
+| **Later items** | [#10](#idea-10) reminders skip people who are only waiting; [#12](#idea-12) analytics can show "waitlist demand"; [#15](#idea-15) check-in only concerns registrations. |
+| **Risk** | Medium. The promotion logic sits in the middle of cancel / update / delete; the concurrency tests matter most. |
+
+### Files to change
+
+Backend: new `waitlist/waitlist-entry.entity.ts`, `waitlist/waitlist.service.ts` (join, leave, promote, list), `waitlist/waitlist.controller.ts` (or routes on the existing controllers), migration, specs + int-spec; `registrations/registrations.service.ts` (cancel → promote; `mine` → waitlist entries), `events/events.service.ts` (capacity up → promote; delete → notify waiting; view counts; summary), `events/event-view.ts`, `mail/templates.ts`, `mail/notifications.service.ts`, `common/routes.ts`, `database/data-source.ts`. Frontend: `types.ts`, `endpoints.ts`, `pages/EventDetailPage.tsx`, `pages/EventsPage.tsx`, `pages/MyRegistrationsPage.tsx`, `pages/DashboardPage.tsx`, `ui.tsx` (`seatsLabel`). Docs: `README.md`.
+
+### Decisions (2026-11-05): all four recommendations
+
+1. The first person in line is registered automatically.
+2. Unlimited waitlist.
+3. Promotion continues right up to the start time.
+4. Waiting people also get the "event changed" / "event cancelled" emails.
 
 [↑ Back to table of contents](#table-of-contents)
 
@@ -983,4 +1088,5 @@ Make the unused "Pure Black & Red Neon 4K" design the app's real look, instead o
 - 2026-11-05 – `backend/package.json`: add `"engines": { "node": ">=22.12" }` (required by `resend`), and use `npm ci` instead of `npm install` in the Dockerfile for reproducible builds.
 - 2026-11-05 – Account follow-ups from [#7](#idea-7): (a) cleanup of used/expired rows in `auth_tokens`; (b) "change password" while logged in (needs the current password) and "change email" (needs re-verification); (c) a banner update in other open tabs after verifying (today only the tab that opened the link refreshes); (d) register's unique-email race: two simultaneous sign-ups with the same address → the second gets a 500 from the database constraint instead of 409.
 - 2026-11-05 – **Content-Security-Policy for the frontend.** helmet's CSP from [#2](#idea-2) only covers API responses; the React app's `index.html` (served by Vite / a static host) has none. A CSP (`script-src 'self'`, fonts from Google, `connect-src` = the API) is the main defense against XSS, the attack [#8](#idea-8) limits the damage of. Set it in the static host's headers, or a `<meta http-equiv>` as a fallback.
+- 2026-11-05 – Tests under load, for [#13](#idea-13): twice now (ideas 7 and 9) one unit test failed only because the machine was heavily loaded (suites ran 5–10× slower; VS Code using a lot of CPU) and passed on rerun. In CI, run Jest with a fixed number of workers (`--maxWorkers=2`) so timings stay predictable.
 - 2026-11-05 – Update outdated dependencies that `npm install` warns about (`glob`, `inflight`, `uuid`, pulled in by other packages), as part of [#13](#idea-13).

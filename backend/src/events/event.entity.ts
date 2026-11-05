@@ -1,6 +1,7 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 import { User } from '../users/user.entity';
 import { Registration } from '../registrations/registration.entity';
+import { WaitlistEntry } from '../waitlist/waitlist-entry.entity';
 
 @Entity('events')
 export class Event {
@@ -33,9 +34,13 @@ export class Event {
   @OneToMany(() => Registration, (r) => r.event)
   registrations: Registration[];
 
+  @OneToMany(() => WaitlistEntry, (w) => w.event)
+  waitlist: WaitlistEntry[];
+
   @CreateDateColumn()
   createdAt: Date;
 
-  // populat de loadRelationCountAndMap, nu este coloană
+  // populate de loadRelationCountAndMap, nu sunt coloane
   registeredCount?: number;
+  waitlistCount?: number;
 }

@@ -16,6 +16,8 @@ export const ROUTES = {
     summary: 'mine/summary',
     one: ':id',
     registrations: ':id/registrations',
+    waitlist: ':id/waitlist',
   },
   registrations: { base: 'registrations', mine: 'me' },
+  waitlist: { base: 'waitlist', mine: 'me' },
 } as const;

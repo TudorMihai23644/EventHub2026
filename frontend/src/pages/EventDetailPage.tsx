@@ -41,6 +41,21 @@ export default function EventDetailPage() {
     }
   }
 
+  async function waitlistAct(method: 'POST' | 'DELETE') {
+    setBusy(true);
+    try {
+      const res = await api<{ position: number } | undefined>(ENDPOINTS.events.waitlist(id as string), { method });
+      notify('ok', method === 'POST'
+        ? `Ești pe lista de așteptare, pe locul ${res?.position}. Te înscriem automat dacă se eliberează un loc.`
+        : 'Ai ieșit de pe lista de așteptare.');
+    } catch (err) {
+      notify('err', errMsg(err)); // ex. tocmai s-a eliberat un loc: pagina reîncărcată arată „Înscrie-te”
+    } finally {
+      await load();
+      setBusy(false);
+    }
+  }
+
   if (error) return <p className="alert err">{error} <Link to="/">Înapoi la evenimente</Link></p>;
   if (!ev) return <Loading />;
 
@@ -69,13 +84,34 @@ export default function EventDetailPage() {
         {ev.canRegister && <button className="btn" onClick={() => act('POST')} disabled={busy}>Înscrie-te</button>}
         {ev.mustVerifyEmail && (
           <>
-            <p>Mai e un pas: confirmă-ți adresa de email ca să te poți înscrie. Linkul este în emailul primit la înregistrare.</p>
+            <p>
+              Mai e un pas: confirmă-ți adresa de email ca să {ev.status === 'FULL' ? 'intri pe lista de așteptare' : 'te poți înscrie'}.
+              Linkul este în emailul primit la înregistrare.
+            </p>
             <ResendVerificationButton className="btn ghost" />
           </>
         )}
         {ev.canCancel && <button className="btn ghost" onClick={() => act('DELETE')} disabled={busy}>Anulează înscrierea</button>}
-        {user?.role === 'PARTICIPANT' && ev.status === 'FULL' && !ev.isRegistered && (
-          <button className="btn" disabled>Locuri epuizate</button>
+        {ev.canJoinWaitlist && (
+          <>
+            <p>
+              Evenimentul este plin.{' '}
+              {ev.waitlistCount > 0 ? `${ev.waitlistCount} ${ev.waitlistCount === 1 ? 'persoană așteaptă' : 'persoane așteaptă'} deja. ` : ''}
+              Dacă se eliberează un loc, primul de pe listă este înscris automat și primește un email.
+            </p>
+            <button className="btn" onClick={() => waitlistAct('POST')} disabled={busy}>Intră pe lista de așteptare</button>
+          </>
+        )}
+        {ev.isWaitlisted && (
+          <>
+            <p>
+              Ești pe locul <strong>{ev.waitlistPosition}</strong> din {ev.waitlistCount} pe lista de așteptare.
+              {ev.waitlistPosition === 1 ? ' Primul loc eliberat este al tău.' : ''}
+            </p>
+            {ev.canLeaveWaitlist && (
+              <button className="btn ghost" onClick={() => waitlistAct('DELETE')} disabled={busy}>Ieși de pe lista de așteptare</button>
+            )}
+          </>
         )}
         {ev.canEdit && <Link className="btn" to={`/organizator/${ev.id}/editare`}>Editează evenimentul</Link>}
       </div>

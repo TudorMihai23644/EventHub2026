@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { ENDPOINTS } from '../endpoints';
-import { Attendee, EventItem, OrganizerSummary } from '../types';
+import { Attendee, EventItem, OrganizerSummary, WaitlistPerson } from '../types';
 import { DateTile, Loading, errMsg, fmtDate, useToast } from '../ui';
 
 export default function DashboardPage() {
@@ -10,6 +10,7 @@ export default function DashboardPage() {
   const [events, setEvents] = useState<EventItem[] | null>(null);
   const [summary, setSummary] = useState<OrganizerSummary | null>(null);
   const [attendees, setAttendees] = useState<Record<string, Attendee[]>>({});
+  const [waiting, setWaiting] = useState<Record<string, WaitlistPerson[]>>({});
 
   const load = useCallback(async () => {
     try {
@@ -24,7 +25,8 @@ export default function DashboardPage() {
   useEffect(() => { load(); }, [load]);
 
   async function remove(e: EventItem) {
-    if (!window.confirm(`Ștergi evenimentul „${e.title}”? Înscrierile existente vor fi șterse.`)) return;
+    const who = e.waitlistCount > 0 ? 'Înscrierile și lista de așteptare vor fi șterse' : 'Înscrierile existente vor fi șterse';
+    if (!window.confirm(`Ștergi evenimentul „${e.title}”? ${who}, iar toți cei afectați primesc un email.`)) return;
     try {
       await api(ENDPOINTS.events.one(e.id), { method: 'DELETE' });
       notify('ok', 'Evenimentul a fost șters.');
@@ -43,6 +45,17 @@ export default function DashboardPage() {
     } catch (err) { notify('err', errMsg(err)); }
   }
 
+  async function toggleWaiting(e: EventItem) {
+    if (waiting[e.id]) {
+      setWaiting((w) => { const next = { ...w }; delete next[e.id]; return next; });
+      return;
+    }
+    try {
+      const list = await api<WaitlistPerson[]>(ENDPOINTS.events.waitlist(e.id));
+      setWaiting((w) => ({ ...w, [e.id]: list }));
+    } catch (err) { notify('err', errMsg(err)); }
+  }
+
   if (!events || !summary) return <Loading />;
 
   return (
@@ -52,6 +65,7 @@ export default function DashboardPage() {
           <h1>Evenimentele mele</h1>
           <p className="muted">
             {summary.eventsCount} evenimente ({summary.upcomingCount} viitoare), {summary.totalRegistrations} înscrieri în total
+            {summary.totalWaiting > 0 && `, ${summary.totalWaiting} pe liste de așteptare`}
           </p>
         </div>
         <Link className="btn" to="/organizator/nou">Eveniment nou</Link>
@@ -67,7 +81,10 @@ export default function DashboardPage() {
               <div className="meter" role="img" aria-label={`${e.registeredCount} din ${e.capacity} locuri ocupate`}>
                 <span style={{ width: `${e.occupancyPercent}%` }} />
               </div>
-              <p className="small"><strong>{e.registeredCount}</strong> înscriși din {e.capacity} locuri</p>
+              <p className="small">
+                <strong>{e.registeredCount}</strong> înscriși din {e.capacity} locuri
+                {e.waitlistCount > 0 && <> · <strong>{e.waitlistCount}</strong> în așteptare</>}
+              </p>
               {attendees[e.id] && (
                 attendees[e.id].length === 0
                   ? <p className="muted small">Încă nu există înscriși.</p>
@@ -75,9 +92,20 @@ export default function DashboardPage() {
                       {attendees[e.id].map((a) => <li key={a.id}>{a.user.name} <span className="muted">({a.user.email})</span></li>)}
                     </ul>
               )}
+              {waiting[e.id] && (
+                <>
+                  <p className="small"><strong>Lista de așteptare</strong> (în ordine; primul primește următorul loc liber)</p>
+                  <ol className="attendees">
+                    {waiting[e.id].map((w) => <li key={w.id}>{w.user.name} <span className="muted">({w.user.email})</span></li>)}
+                  </ol>
+                </>
+              )}
             </div>
             <div className="actions">
               <button className="btn ghost" onClick={() => toggleAttendees(e)}>{attendees[e.id] ? 'Ascunde înscrișii' : 'Vezi înscrișii'}</button>
+              {e.waitlistCount > 0 && (
+                <button className="btn ghost" onClick={() => toggleWaiting(e)}>{waiting[e.id] ? 'Ascunde lista de așteptare' : 'Vezi lista de așteptare'}</button>
+              )}
               {e.canEdit && <Link className="btn ghost" to={`/organizator/${e.id}/editare`}>Editează</Link>}
               {e.canEdit && <button className="btn danger" onClick={() => remove(e)}>Șterge</button>}
             </div>

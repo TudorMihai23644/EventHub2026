@@ -27,9 +27,47 @@ describe('buildEventView', () => {
     expect(v).toMatchObject({ canRegister: false, mustVerifyEmail: true });
     const ok = buildEventView(ev(), { id: 'u1', role: 'PARTICIPANT', emailVerified: true }, false);
     expect(ok).toMatchObject({ canRegister: true, mustVerifyEmail: false });
-    // fără locuri: nici înscriere, nici îndemn la confirmare
+    // plin: nu se poate înscrie, dar ar putea intra pe lista de așteptare după confirmare
     expect(buildEventView(ev({ registeredCount: 2 }), { id: 'u1', role: 'PARTICIPANT', emailVerified: false }, false))
-      .toMatchObject({ canRegister: false, mustVerifyEmail: false });
+      .toMatchObject({ canRegister: false, canJoinWaitlist: false, mustVerifyEmail: true });
+  });
+
+  describe('lista de așteptare', () => {
+    const p = { id: 'u1', role: 'PARTICIPANT' as const, emailVerified: true };
+    const full = (over: Partial<Event> = {}) => ev({ registeredCount: 2, waitlistCount: 4, ...over });
+
+    it('eveniment plin: participantul poate intra pe listă și vede câți așteaptă', () => {
+      expect(buildEventView(full(), p)).toMatchObject({
+        status: 'FULL', canRegister: false, canJoinWaitlist: true, isWaitlisted: false, waitlistPosition: null, waitlistCount: 4,
+      });
+    });
+
+    it('cu locuri libere nu există opțiunea de listă', () => {
+      expect(buildEventView(ev(), p)).toMatchObject({ canRegister: true, canJoinWaitlist: false });
+    });
+
+    it('pe listă: își vede locul, poate ieși, nu poate intra din nou', () => {
+      expect(buildEventView(full(), p, false, Date.now(), 3)).toMatchObject({
+        isWaitlisted: true, waitlistPosition: 3, canLeaveWaitlist: true, canJoinWaitlist: false, canRegister: false, mustVerifyEmail: false,
+      });
+    });
+
+    it('înscris: nicio acțiune de listă', () => {
+      expect(buildEventView(full(), p, true)).toMatchObject({ canJoinWaitlist: false, canLeaveWaitlist: false, isWaitlisted: false });
+    });
+
+    it('eveniment trecut: nici intrare, nici ieșire', () => {
+      expect(buildEventView(full({ startsAt: new Date(Date.now() - day) }), p, false, Date.now(), 1))
+        .toMatchObject({ canJoinWaitlist: false, canLeaveWaitlist: false });
+    });
+
+    it('organizatorul și vizitatorul văd doar numărul celor care așteaptă', () => {
+      for (const viewer of [{ id: 'org1', role: 'ORGANIZER' as const }, undefined]) {
+        expect(buildEventView(full(), viewer, false, Date.now(), 2)).toMatchObject({
+          waitlistCount: 4, canJoinWaitlist: false, isWaitlisted: false, waitlistPosition: null,
+        });
+      }
+    });
   });
 
   it('doar organizatorul proprietar are canEdit; vizitatorul nu are nicio acțiune', () => {

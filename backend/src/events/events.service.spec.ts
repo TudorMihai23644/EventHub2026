@@ -23,10 +23,11 @@ function setup(event: Partial<Event> | null, taken = 0) {
     eventCancelled: jest.fn(async () => calls.push('eventCancelled')),
   };
   const dataSource: any = { transaction: (cb: (m: unknown) => unknown) => cb(manager) };
-  const service = new EventsService({} as any, {} as any, dataSource, notifications);
+  const waitlist: any = { promote: jest.fn(async () => calls.push('promote')) };
+  const service = new EventsService({} as any, {} as any, dataSource, notifications, waitlist);
   // findOne reîncarcă evenimentul după salvare; aici testăm doar regulile din tranzacție
   jest.spyOn(service, 'findOne').mockResolvedValue({ id: 'e1' } as any);
-  return { service, manager, notifications, calls };
+  return { service, manager, notifications, waitlist, calls };
 }
 
 describe('EventsService.update', () => {
@@ -68,6 +69,24 @@ describe('EventsService.update', () => {
     const { service, notifications } = setup(base, 9);
     await expect(service.update(owner, 'e1', { capacity: 8 })).rejects.toThrow(BadRequestException);
     expect(notifications.eventUpdated).not.toHaveBeenCalled();
+  });
+});
+
+describe('EventsService.update - lista de așteptare', () => {
+  it('capacitatea mărită: întâi promovarea, apoi emailul de modificare', async () => {
+    const { service, waitlist, calls, notifications } = setup(base, 3);
+    notifications.eventUpdated.mockImplementation(async () => calls.push('eventUpdated'));
+    await service.update(owner, 'e1', { capacity: 12 });
+    expect(waitlist.promote).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ capacity: 12 }));
+    expect(calls).toEqual(['promote', 'eventUpdated']);
+  });
+
+  it('capacitatea micșorată, egală sau neschimbată: fără promovare', async () => {
+    for (const dto of [{ capacity: 8 }, { capacity: 10 }, { title: 'Alt titlu' }]) {
+      const { service, waitlist } = setup(base, 3);
+      await service.update(owner, 'e1', dto);
+      expect(waitlist.promote).not.toHaveBeenCalled();
+    }
   });
 });
 

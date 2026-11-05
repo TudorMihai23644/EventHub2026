@@ -90,18 +90,35 @@ Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt def
 | GET | `/events/:id/registrations` | organizator proprietar | lista participanților înscriși |
 | GET | `/events/:id` | public | include `registeredCount`, `availableSeats` |
 | GET | `/events/mine` | organizator | dashboard cu numărul de înscrieri |
-| GET | `/events/mine/summary` | organizator | `{eventsCount, upcomingCount, totalRegistrations}` |
+| GET | `/events/mine/summary` | organizator | `{eventsCount, upcomingCount, totalRegistrations, totalWaiting}` |
 | POST | `/events` | organizator cu email confirmat | 201 / 400 / 403 `EMAIL_NOT_VERIFIED` |
 | PATCH | `/events/:id` | organizator proprietar | 403 dacă nu este proprietar |
 | DELETE | `/events/:id` | organizator proprietar | 204 |
 | POST | `/events/:id/registrations` | participant cu email confirmat | 201 / 400 (trecut) / 403 `EMAIL_NOT_VERIFIED` / 409 (duplicat, plin) |
-| DELETE | `/events/:id/registrations` | participant | 204 / 400 (început) / 404 |
+| DELETE | `/events/:id/registrations` | participant | 204 / 400 (început) / 404; locul eliberat merge la primul de pe lista de așteptare |
 | GET | `/registrations/me` | participant | |
+| POST | `/events/:id/waitlist` | participant cu email confirmat | 201 `{ position, waitlistCount }`; doar când evenimentul e plin (altfel 409 `SEATS_AVAILABLE`); 409 dacă ești înscris / deja pe listă; 400 eveniment trecut |
+| DELETE | `/events/:id/waitlist` | participant | 204 / 404 |
+| GET | `/events/:id/waitlist` | organizator proprietar | cine așteaptă, în ordine |
+| GET | `/waitlist/me` | participant | listele de așteptare proprii, cu locul pe fiecare |
 
 **Toată logica este în API.** Frontend-ul doar afișează răspunsurile. Evenimentele vin cu starea calculată pe server
-(`status`: OPEN/FULL/PAST, `isRegistered`, `canRegister`, `mustVerifyEmail`, `canCancel`, `canEdit`, `occupancyPercent`), iar erorile de validare
+(`status`: OPEN/FULL/PAST, `isRegistered`, `canRegister`, `mustVerifyEmail`, `canCancel`, `canEdit`, `occupancyPercent`,
+`waitlistCount`, `isWaitlisted`, `waitlistPosition`, `canJoinWaitlist`, `canLeaveWaitlist`), iar erorile de validare
 vin ca `{ message, fields: { câmp: mesaj } }` și se afișează lângă fiecare câmp. Rutele `GET /events` și `GET /events/:id`
 sunt publice, dar adaptează răspunsul dacă cererea are token.
+
+## Lista de așteptare
+
+- Când un eveniment viitor este plin, un participant cu email confirmat poate intra pe **lista de așteptare** și își vede locul („locul 3 din 7”).
+- Când se eliberează un loc (cineva își anulează înscrierea sau organizatorul mărește capacitatea), **primul de pe listă este înscris automat**
+  și primește emailul „Ai primit un loc la «Titlu»”; organizatorul primește „Înscriere nouă … (de pe lista de așteptare)”.
+  Dacă nu mai poate veni, își anulează înscrierea și locul trece la următorul.
+- Ordinea: primul venit, primul servit. Lista nu are limită. Promovarea continuă până la începerea evenimentului.
+- **Invariant:** cât timp cineva așteaptă, evenimentul nu are locuri libere. Toate operațiile pe locuri și pe listă (înscriere, anulare,
+  intrare/ieșire de pe listă, modificarea capacității, ștergere) blochează același rând al evenimentului, deci regula ține și la cereri simultane.
+- Cei de pe listă primesc și emailurile „s-a schimbat evenimentul” / „evenimentul a fost anulat”.
+- Lista este într-un tabel separat (`waitlist_entries`): tot ce numără locurile ocupate rămâne neschimbat.
 
 ## Sesiuni
 
@@ -227,7 +244,8 @@ Planul gratuit Resend: 100 de emailuri pe zi și 3.000 pe lună. Dacă limita zi
 - Înscrierea nu se mai poate anula după începerea evenimentului (400). Anularea rulează în aceeași tranzacție cu lock pe eveniment ca înscrierea.
 - Doar organizatorul proprietar poate edita sau șterge (guard de rol + verificare de proprietate → 403).
 - Capacitatea unui eveniment nu poate fi redusă sub numărul de înscriși. Modificarea rulează într-o tranzacție cu același lock, deci o înscriere simultană nu poate depăși noua capacitate.
-- Înscrierea la evenimente și crearea de evenimente cer o adresă de email confirmată (403 `EMAIL_NOT_VERIFIED`).
+- Înscrierea la evenimente, intrarea pe lista de așteptare și crearea de evenimente cer o adresă de email confirmată (403 `EMAIL_NOT_VERIFIED`).
+- Un loc eliberat la un eveniment cu listă de așteptare este dat imediat primului de pe listă; un eveniment nu are locuri libere cât timp cineva așteaptă.
 - Validare cu `class-validator` (`whitelist` + `forbidNonWhitelisted`), parole hash-uite cu bcrypt.
 
 ## Structura

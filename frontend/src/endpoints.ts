@@ -21,6 +21,8 @@ export const ENDPOINTS = {
     mine: '/events/mine',
     summary: '/events/mine/summary',
     registrations: (id: string) => `/events/${id}/registrations`, // POST/DELETE participant, GET organizator
+    waitlist: (id: string) => `/events/${id}/waitlist`, // POST/DELETE participant, GET organizator
   },
   registrations: { mine: '/registrations/me' },
+  waitlist: { mine: '/waitlist/me' },
 } as const;

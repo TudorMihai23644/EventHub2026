@@ -60,8 +60,8 @@ export function DateTile({ iso }: { iso: string }) {
   );
 }
 
-export function seatsLabel(e: Pick<EventItem, 'availableSeats' | 'capacity'>) {
-  if (e.availableSeats === 0) return 'Locuri epuizate';
+export function seatsLabel(e: Pick<EventItem, 'availableSeats' | 'capacity'> & { waitlistCount?: number }) {
+  if (e.availableSeats === 0) return e.waitlistCount ? `Plin · ${e.waitlistCount} în așteptare` : 'Locuri epuizate';
   return `${e.availableSeats} din ${e.capacity} locuri libere`;
 }
 

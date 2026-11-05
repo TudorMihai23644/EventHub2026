@@ -31,6 +31,32 @@ export interface EventItem {
   mustVerifyEmail: boolean;
   canCancel: boolean;
   canEdit: boolean;
+  // listă de așteptare (calculate de API)
+  waitlistCount: number;
+  isWaitlisted: boolean;
+  /** 1 = următorul care primește un loc; null dacă nu este pe listă. */
+  waitlistPosition: number | null;
+  canJoinWaitlist: boolean;
+  canLeaveWaitlist: boolean;
+}
+
+/** O listă de așteptare a participantului (GET /waitlist/me). */
+export interface WaitlistItem {
+  id: string;
+  joinedAt: string;
+  position: number | null;
+  waitlistCount: number;
+  isPast: boolean;
+  canLeave: boolean;
+  event: { id: string; title: string; startsAt: string; location: string; capacity: number };
+}
+
+/** Cine așteaptă, pentru organizator (GET /events/:id/waitlist). */
+export interface WaitlistPerson {
+  id: string;
+  position: number;
+  joinedAt: string;
+  user: { id: string; name: string; email: string };
 }
 
 // Listele paginate din API (ex. GET /events).
@@ -60,4 +86,5 @@ export interface OrganizerSummary {
   eventsCount: number;
   upcomingCount: number;
   totalRegistrations: number;
+  totalWaiting: number;
 }

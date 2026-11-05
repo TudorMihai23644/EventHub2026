@@ -7,6 +7,7 @@ import * as T from './templates';
 import { User } from '../users/user.entity';
 import { Event } from '../events/event.entity';
 import { Registration } from '../registrations/registration.entity';
+import { WaitlistEntry } from '../waitlist/waitlist-entry.entity';
 
 // Decide cine primește ce email și îl pune în coadă (email_outbox).
 // Fiecare metodă primește EntityManager-ul tranzacției apelantului: dacă acțiunea eșuează și tranzacția
@@ -42,19 +43,46 @@ export class Notifications {
     const next = info(after);
     if (!eventChanges(this.cfg, before, next).length) return 0;
     const people = await this.participants(m, after.id);
+    const waiting = await this.waiting(m, after.id);
     for (const p of people) {
       await this.enqueue(m, 'event-updated', p, T.eventUpdated(this.cfg, { name: p.name, before, after: next }));
     }
-    return people.length;
+    for (const p of waiting) {
+      await this.enqueue(m, 'event-updated', p, T.eventUpdated(this.cfg, { name: p.name, before, after: next, waiting: true }));
+    }
+    return people.length + waiting.length;
   }
 
-  /** Evenimentul va fi șters: anunță participanții ÎNAINTE de ștergere (după ea, lista lor nu mai există). */
+  /** Evenimentul va fi șters: anunță participanții și lista de așteptare ÎNAINTE de ștergere (după ea, listele nu mai există). */
   async eventCancelled(m: EntityManager, event: Event) {
     const people = await this.participants(m, event.id);
+    const waiting = await this.waiting(m, event.id);
     for (const p of people) {
       await this.enqueue(m, 'event-cancelled', p, T.eventCancelled(this.cfg, { name: p.name, event: info(event) }));
     }
-    return people.length;
+    for (const p of waiting) {
+      await this.enqueue(m, 'event-cancelled', p, T.eventCancelled(this.cfg, { name: p.name, event: info(event), waiting: true }));
+    }
+    return people.length + waiting.length;
+  }
+
+  // ---------- listă de așteptare ----------
+
+  async waitlistJoined(m: EntityManager, d: { userId: string; event: Event; position: number }) {
+    const user = await this.user(m, d.userId);
+    await this.enqueue(m, 'waitlist-joined', user, T.waitlistJoined(this.cfg, { name: user.name, event: info(d.event), position: d.position }));
+  }
+
+  /** Primul de pe listă a fost înscris automat: email pentru el + anunțul obișnuit pentru organizator. */
+  async waitlistPromoted(m: EntityManager, d: { userId: string; event: Event; taken: number }) {
+    const participant = await this.user(m, d.userId);
+    const organizer = await this.user(m, d.event.organizerId);
+    const event = info(d.event);
+    await this.enqueue(m, 'waitlist-promoted', participant, T.waitlistPromoted(this.cfg, { name: participant.name, event }));
+    await this.enqueue(m, 'organizer-registration', organizer, T.organizerNewRegistration(this.cfg, {
+      organizerName: organizer.name, participantName: participant.name, event,
+      taken: d.taken, capacity: d.event.capacity, fromWaitlist: true,
+    }));
   }
 
   // ---------- cont ----------
@@ -74,6 +102,11 @@ export class Notifications {
 
   private async participants(m: EntityManager, eventId: string): Promise<User[]> {
     const rows = await m.find(Registration, { where: { eventId }, relations: { user: true }, order: { createdAt: 'ASC' } });
+    return rows.map((r) => r.user);
+  }
+
+  private async waiting(m: EntityManager, eventId: string): Promise<User[]> {
+    const rows = await m.find(WaitlistEntry, { where: { eventId }, relations: { user: true }, order: { createdAt: 'ASC', id: 'ASC' } });
     return rows.map((r) => r.user);
   }
 

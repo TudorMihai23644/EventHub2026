@@ -4,6 +4,8 @@ import { DataSource, Repository } from 'typeorm';
 import { Registration } from './registration.entity';
 import { Event } from '../events/event.entity';
 import { Notifications } from '../mail/notifications.service';
+import { WaitlistService } from '../waitlist/waitlist.service';
+import { WaitlistEntry } from '../waitlist/waitlist-entry.entity';
 
 @Injectable()
 export class RegistrationsService {
@@ -11,6 +13,7 @@ export class RegistrationsService {
     private readonly dataSource: DataSource,
     @InjectRepository(Registration) private readonly repo: Repository<Registration>,
     private readonly notifications: Notifications,
+    private readonly waitlist: WaitlistService,
   ) {}
 
   // Tranzacție + lock pe rândul evenimentului: două cereri simultane
@@ -27,6 +30,8 @@ export class RegistrationsService {
       const taken = await m.count(Registration, { where: { eventId } });
       if (taken >= event.capacity) throw new ConflictException('Nu mai sunt locuri disponibile.');
       const saved = await m.save(m.create(Registration, { userId, eventId }));
+      // Cu locuri libere lista de așteptare e goală (invariant); ștergerea e doar apărare, în caz că ar rămâne ceva.
+      await m.delete(WaitlistEntry, { userId, eventId });
       // în aceeași tranzacție: dacă ceva eșuează, nu rămâne un email pentru o înscriere care nu există
       await this.notifications.registrationCreated(m, { userId, event, taken: taken + 1 });
       return saved;
@@ -46,6 +51,8 @@ export class RegistrationsService {
       if (!res.affected) throw new NotFoundException('Nu ești înscris la acest eveniment.');
       const taken = await m.count(Registration, { where: { eventId } });
       await this.notifications.registrationCancelled(m, { userId, event, taken });
+      // locul eliberat merge la primul de pe lista de așteptare, în aceeași tranzacție (cu lock-ul pe eveniment)
+      await this.waitlist.promote(m, event);
     });
   }
 

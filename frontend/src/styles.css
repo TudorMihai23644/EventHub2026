@@ -100,6 +100,9 @@ h2 .pill { vertical-align: middle; }
 .head-row h1 { margin-bottom: .4rem; }
 .actions { display: flex; gap: .6rem; flex-wrap: wrap; }
 .attendees { margin: .6rem 0 0; padding-left: 1.2rem; font-size: .92rem; }
+.section { margin-top: 2.5rem; }
+.section-title { font: 700 1.3rem/1.2 var(--display); margin: 0 0 .4rem; }
+.section > .muted { margin-bottom: 1rem; }
 
 /* ---------- butoane ---------- */
 .btn { display: inline-block; font: 800 .95rem var(--sans); background: var(--red); color: #000; border: 1.5px solid var(--red); padding: .7rem 1.4rem; border-radius: 999px; cursor: pointer; text-decoration: none; text-align: center; box-shadow: 0 0 1.1rem rgba(255, 16, 48, .4); transition: box-shadow .15s, filter .15s; }

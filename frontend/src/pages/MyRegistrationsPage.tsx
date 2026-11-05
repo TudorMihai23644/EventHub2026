@@ -2,16 +2,23 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { ENDPOINTS } from '../endpoints';
-import { RegistrationItem } from '../types';
+import { RegistrationItem, WaitlistItem } from '../types';
 import { DateTile, Loading, errMsg, fmtDate, useToast } from '../ui';
 
 export default function MyRegistrationsPage() {
   const { notify } = useToast();
   const [items, setItems] = useState<RegistrationItem[] | null>(null);
+  const [waiting, setWaiting] = useState<WaitlistItem[] | null>(null);
 
   const load = useCallback(async () => {
-    try { setItems(await api<RegistrationItem[]>(ENDPOINTS.registrations.mine)); }
-    catch (e) { notify('err', errMsg(e)); }
+    try {
+      const [regs, wait] = await Promise.all([
+        api<RegistrationItem[]>(ENDPOINTS.registrations.mine),
+        api<WaitlistItem[]>(ENDPOINTS.waitlist.mine),
+      ]);
+      setItems(regs);
+      setWaiting(wait);
+    } catch (e) { notify('err', errMsg(e)); }
   }, [notify]);
   useEffect(() => { load(); }, [load]);
 
@@ -23,7 +30,15 @@ export default function MyRegistrationsPage() {
     } catch (e) { notify('err', errMsg(e)); }
   }
 
-  if (!items) return <Loading />;
+  async function leave(eventId: string) {
+    try {
+      await api(ENDPOINTS.events.waitlist(eventId), { method: 'DELETE' });
+      notify('ok', 'Ai ieșit de pe lista de așteptare.');
+      load();
+    } catch (e) { notify('err', errMsg(e)); }
+  }
+
+  if (!items || !waiting) return <Loading />;
   return (
     <>
       <h1>Înscrierile mele</h1>
@@ -42,6 +57,28 @@ export default function MyRegistrationsPage() {
           </li>
         ))}
       </ul>
+
+      {waiting.length > 0 && (
+        <section className="section">
+          <h2 className="section-title">Liste de așteptare</h2>
+          <p className="muted">Dacă se eliberează un loc, primul de pe listă este înscris automat și primește un email.</p>
+          <ul className="list">
+            {waiting.map((w) => (
+              <li key={w.id} className="row static">
+                <DateTile iso={w.event.startsAt} />
+                <div className="row-body">
+                  <h2><Link to={`/events/${w.event.id}`}>{w.event.title}</Link></h2>
+                  <p className="muted">{fmtDate(w.event.startsAt)}, {w.event.location}</p>
+                  {w.position !== null && <p className="small">Locul <strong>{w.position}</strong> din {w.waitlistCount}</p>}
+                </div>
+                {w.canLeave
+                  ? <button className="btn ghost" onClick={() => leave(w.event.id)}>Ieși de pe listă</button>
+                  : w.isPast && <span className="pill full">Încheiat</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </>
   );
 }
