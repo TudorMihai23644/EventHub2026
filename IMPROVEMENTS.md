@@ -50,7 +50,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 | [13](#idea-13) | [ ] | CI (lint + tests), ESLint/Prettier, frontend tests, frontend in `docker-compose` | Tooling | M | |
 | [14](#idea-14) | [x] | Location on a map (free Nominatim + Leaflet; no autocomplete, per Nominatim policy) | Feature + API | M | |
 | [15](#idea-15) | [x] | QR ticket per registration + organizer check-in scanner | Feature | M–L | |
-| [16](#idea-16) | [ ] | Google sign-in (OAuth), Cloudflare Turnstile on register/login, Sentry monitoring | API | S each | |
+| [16](#idea-16) | [x] | Google sign-in (OAuth), Cloudflare Turnstile on register/login, Sentry monitoring | API | S each | |
 | [17](#idea-17) | [ ] | Paid events with Stripe Checkout | Feature + API | L | |
 | [18](#idea-18) | [ ] | Adopt the "Red Neon 4K" theme (`index.css`, `EventCard`, `Navbar`) for the whole app | Design | M | priority to decide |
 
@@ -1365,11 +1365,67 @@ Each registration gets a ticket code shown as a QR. At the door the organizer sc
 ---
 
 <a id="idea-16"></a>
-## 16. Google sign-in, Turnstile, Sentry
+## 16. Google sign-in, Cloudflare Turnstile, Sentry
 
-**Status:** idea · plan not written yet
+**Status:** done (2026-11-06), implemented without a separate plan review (user asked to finish the roadmap autonomously)
 
-Google OAuth (`passport-google-oauth20`) next to the existing JWT auth; Cloudflare Turnstile on register/login; Sentry on frontend and backend.
+Three independent integrations, each **off until its keys are configured**. With no keys the app behaves exactly as before (all existing tests run that way).
+
+### Plan (as implemented)
+
+**A. "Continuă cu Google"** (`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`)
+
+1. Server-side **authorization code flow** (no Google script in the page): `GET /api/auth/google?next=` → 302 to Google with `state`, `nonce` and **PKCE** (S256). The three values (+ `next`) go in a temporary httpOnly cookie `eh_oauth` (10 min, `SameSite=Lax`, path `/api/auth/google`). Lax, not Strict, because the return from Google is a cross-site navigation.
+2. `GET /api/auth/google/callback`: `state` must match the cookie (CSRF: otherwise an attacker could sign the victim into the attacker's account). The cookie is single-use. The code is exchanged at the token endpoint with the secret + `code_verifier`. The ID token's signature isn't re-checked: it comes straight from Google over TLS, in reply to a request authenticated with our secret (OIDC Core 3.1.3.7). Its claims are checked: `iss`, `aud` = our client, `exp`, `nonce`, `sub`, and `email_verified === true`.
+3. Account rules (`AuthService.signInWithGoogle`, one transaction, row lock on the email):
+   - `googleId` known → sign in;
+   - same email, **verified** account → link (password and sessions stay);
+   - same email, **unverified** account → link **and wipe its password, revoke all sessions, bump `tokenVersion`**. Whoever created that account may not own the address (pre-registration takeover); now only the address owner has access;
+   - email already linked to a *different* Google account → 409;
+   - otherwise a new **participant**, verified, with **no password**. Organizers still need the invite code.
+   - Two simultaneous first sign-ins: the loser hits the unique constraint and retries once, so both get the same account instead of a 500.
+4. Success → normal session cookie + 302 to `APP_URL/autentificare-google?next=…`. That page asks for the access token with the cookie, exactly like a page reload. Failure → `/login?google=cancelled|expired|unverified|error`, with a Romanian message.
+5. Passwordless accounts: `users.passwordHash` nullable, new `users.googleId` (unique). Password login → `401 USE_GOOGLE`, change password / delete account → `400 NO_PASSWORD`; "Ai uitat parola?" sets a password. Migration `1793993000000-GoogleSignIn` (down: placeholder `!`, which bcrypt never matches).
+6. `GET /api/auth/options` → `{ google, turnstileSiteKey }`, so the frontend holds no config of its own. New throttle scope `oauth` (20/min per IP).
+
+**B. Cloudflare Turnstile** (`TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`)
+
+1. `TurnstileGuard` + `@Turnstile('login' | 'register' | 'forgot')` on the three public forms. It runs after the throttler, so floods don't reach Cloudflare. Token in header `X-Turnstile-Token` (DTOs unchanged).
+2. `siteverify` with secret, token and IP; `success: false` or a token made for another form (`action`) → `400 CAPTCHA_FAILED`; missing → `400 CAPTCHA_REQUIRED`.
+3. **Cloudflare unreachable / 5xx → the request passes**, with a warning in the log. A Cloudflare outage shouldn't lock everyone out; the rate limits still apply. Decision recorded here because it trades a little bot protection for availability.
+4. Frontend: the widget (dark, `ro`) loads only when the server sends a site key; the submit button waits for it; the widget is renewed after every attempt (tokens are single-use).
+
+**C. Sentry** (`SENTRY_DSN`, `VITE_SENTRY_DSN`)
+
+1. Backend: `@sentry/nestjs` 11.8.0 started in `instrument.ts` (imported first), `SentryGlobalFilter` reports only **unexpected** errors (500). HttpExceptions (400/401/403/404/409) are not reported, and responses are unchanged.
+2. **Nothing personal:** SDK v11 `dataCollection` off for user info, cookies, bodies, query strings, response headers, plus a deny list for `Authorization` / `Cookie` / `X-Turnstile-Token`. `beforeSend` scrubs again (second layer): no query string (the OAuth `code` is in the callback URL), no body (passwords), user reduced to the id.
+3. Frontend: `@sentry/react` loaded by **dynamic import only when `VITE_SENTRY_DSN` is set**. Without it Vite drops the SDK from the build entirely (verified: no Sentry chunk). URLs in events **and breadcrumbs** lose their query string: reset / verify links carry the token in the page URL. New `ErrorBoundary`: a render error shows "Ceva nu a mers" + reload instead of a white page.
+
+### Results
+
+| Check | Result |
+|---|---|
+| Unit: Google (config, PKCE challenge = sha256(verifier), state tamper → null, `next` only internal, ID token: 7 rejection cases), Turnstile (fake siteverify: ok / rejected / other action / test keys / 500 / unreachable; guard), Sentry (off without DSN, scrubbing) | 30 pass |
+| Integration (`google.int-spec`, 7): new account, `USE_GOOGLE` / `NO_PASSWORD` + reset sets a password, link verified account (sessions kept), **unverified account takeover defense**, other Google account → 409, organizer keeps role, concurrent first sign-in | pass |
+| Break on purpose: drop the password wipe + session revocation → takeover test fails; drop the unique-conflict retry → concurrent test fails 2 of 3 runs | caught, restored |
+| End-to-end, real API + fake Google / Cloudflare / Sentry (21 checks): options, Turnstile on 3 forms, other routes unaffected, OAuth start (PKCE, cookie flags), wrong state / missing cookie / cancelled / bad code, success + `next`, token request contents, session via refresh, `USE_GOOGLE`, a real 500 reaches Sentry **without the token or query string**, 400/404 not reported | all pass |
+| Full suites | unit 28 suites / 312; integration 12 suites / 124 (twice in a row); `migration:check` clean |
+| Frontend `tsc` + build | pass; main bundle +6 kB gzip (Turnstile/Google UI, ErrorBoundary), Sentry absent without DSN |
+
+### Found along the way
+
+- **`docker-compose.yml` was invalid since idea 11 part 2 (`77a4f11`).** I had inserted `volumes:` in the middle of the backend's `environment:`, leaving `COOKIE_SECURE` outside it, so `docker compose up` failed to parse. No test touches compose, so it went unnoticed. Fixed here; `docker compose config -q` passes. A compose check in CI is added to [#13](#idea-13).
+- `secret()` now takes an optional `env` (default `process.env`), so config functions can be unit-tested.
+
+### How it affects the project
+
+| Area | Change |
+|---|---|
+| Database | `users.googleId` (unique), `users.passwordHash` nullable |
+| API | `GET /auth/options`, `GET /auth/google`, `GET /auth/google/callback`; Turnstile header on register / login / forgot when enabled; new error codes `USE_GOOGLE`, `NO_PASSWORD`, `CAPTCHA_REQUIRED`, `CAPTCHA_FAILED` |
+| External calls | Google token endpoint (sign-in only), Cloudflare siteverify (3 forms), Sentry ingest (errors only), all only when configured |
+| Config | `GOOGLE_CLIENT_ID`, `secrets/google_client_secret.txt`, `TURNSTILE_SITE_KEY`, `secrets/turnstile_secret_key.txt`, `SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE`, `VITE_SENTRY_DSN`. **Existing installs: rerun `setup-secrets`** (only creates the missing files) |
+| Frontend | Google button + "sau" divider, Turnstile widget, `/autentificare-google`, `ErrorBoundary`, `monitoring.ts` |
 
 [↑ Back to table of contents](#table-of-contents)
 
@@ -1449,3 +1505,5 @@ Make the unused "Pure Black & Red Neon 4K" design the app's real look, instead o
 - 2026-11-05 – Update outdated dependencies that `npm install` warns about (`glob`, `inflight`, `uuid`, pulled in by other packages), as part of [#13](#idea-13).
 - 2026-11-06 – Map follow-ups from [#14](#idea-14): (a) "events near me" (distance filter; `earthdistance` or PostGIS, browser geolocation only on click); (b) let the organizer drag the pin when OSM finds the wrong spot (store a manual override that geocoding never replaces); (c) retry `FAILED` geocodes once a day instead of only after a location edit; (d) production tile provider + add its host to the frontend CSP (`img-src`).
 - 2026-11-06 – Ticket follow-ups from [#15](#idea-15): (a) printable / Apple-Wallet-style ticket (PDF with the QR); (b) an in-app camera scanner for organizers who prefer it (`BarcodeDetector` where available, a JS decoder elsewhere) — today the phone camera opens the link, which works everywhere; (c) offline check-in for venues without signal (download the ticket list, sync later).
+- 2026-11-06 – For [#13](#idea-13): validate `docker-compose.yml` in CI (`docker compose config -q`) and smoke-test `docker compose up` (health check). Idea 11 part 2 broke the file and no test noticed for three ideas (fixed in [#16](#idea-16)).
+- 2026-11-06 – Google follow-ups from [#16](#idea-16): show "Conectat cu Google" and a "set a password" shortcut on the profile page (today: "Ai uitat parola?"); let a user unlink Google once they have a password.

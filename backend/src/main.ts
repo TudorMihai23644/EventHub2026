@@ -1,4 +1,5 @@
 import 'dotenv/config'; // încarcă backend/.env la rularea locală
+import './instrument'; // Sentry (doar cu SENTRY_DSN), înaintea celorlalte module
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';

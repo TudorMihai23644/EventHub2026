@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { ForgotPasswordDto, LoginDto, RegisterDto, ResetPasswordDto, VerifyEmailDto } from './dto/auth.dto';
@@ -8,12 +8,24 @@ import { ClientHeaderGuard, REFRESH_COOKIE, clearRefreshCookie, setRefreshCookie
 import { IssuedRefresh } from './sessions.service';
 import { ROUTES } from '../common/routes';
 import { ThrottleScope } from '../common/security';
+import { TURNSTILE_CONFIG, Turnstile, TurnstileConfig, TurnstileGuard } from './turnstile';
+import { GOOGLE_CONFIG, GoogleConfig } from './google/google-oauth';
 
 type WithRefresh<T> = T & { refresh?: IssuedRefresh };
 
 @Controller(ROUTES.auth.base)
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    @Inject(GOOGLE_CONFIG) private readonly google: GoogleConfig,
+    @Inject(TURNSTILE_CONFIG) private readonly turnstile: TurnstileConfig,
+  ) {}
+
+  /** Ce metode de autentificare sunt active: frontend-ul nu ține nicio cheie proprie. Cheia Turnstile e publică. */
+  @Get(ROUTES.auth.options)
+  options() {
+    return { google: this.google.enabled, turnstileSiteKey: this.turnstile.siteKey };
+  }
 
   /** Refresh token-ul pleacă doar în cookie-ul httpOnly; în JSON rămân access token-ul și utilizatorul. */
   private respond<T extends object>(res: Response, result: WithRefresh<T>): T {
@@ -24,6 +36,8 @@ export class AuthController {
 
   @Post(ROUTES.auth.register)
   @ThrottleScope('register')
+  @Turnstile('register')
+  @UseGuards(TurnstileGuard)
   async register(@Body() dto: RegisterDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     return this.respond(res, await this.auth.register(dto, req.headers['user-agent']));
   }
@@ -31,6 +45,8 @@ export class AuthController {
   @Post(ROUTES.auth.login)
   @HttpCode(200)
   @ThrottleScope('login')
+  @Turnstile('login')
+  @UseGuards(TurnstileGuard)
   async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     return this.respond(res, await this.auth.login(dto, req.headers['user-agent']));
   }
@@ -77,6 +93,8 @@ export class AuthController {
   @Post(ROUTES.auth.forgotPassword)
   @HttpCode(202)
   @ThrottleScope('forgot')
+  @Turnstile('forgot')
+  @UseGuards(TurnstileGuard)
   forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.auth.forgotPassword(dto);
   }

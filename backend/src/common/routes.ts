@@ -9,6 +9,7 @@ export const ROUTES = {
     refresh: 'refresh', logoutAll: 'logout-all',
     forgotPassword: 'password/forgot', resetPassword: 'password/reset',
     verifyEmail: 'email/verify', resendVerification: 'email/resend',
+    options: 'options', google: 'google', googleCallback: 'google/callback',
   },
   events: {
     base: 'events',

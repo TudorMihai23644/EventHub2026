@@ -13,8 +13,13 @@ export class User {
   @Column({ type: 'varchar', unique: true })
   email: string;
 
-  @Column({ type: 'varchar', select: false })
-  passwordHash: string;
+  /** null = cont creat cu Google, fără parolă (își poate seta una cu „Ai uitat parola?”). */
+  @Column({ type: 'varchar', select: false, nullable: true })
+  passwordHash: string | null;
+
+  /** Identificatorul contului Google (`sub` din ID token), dacă utilizatorul s-a conectat cu Google. */
+  @Column({ type: 'varchar', length: 255, unique: true, nullable: true, select: false })
+  googleId: string | null;
 
   @Column({ type: 'varchar', length: 20 })
   role: Role;

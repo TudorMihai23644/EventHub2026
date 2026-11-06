@@ -24,5 +24,16 @@ if [ ! -f secrets/cloudinary_url.txt ]; then
   read url
   printf '%s' "$url" > secrets/cloudinary_url.txt
 fi
+# Opționale: „Continuă cu Google” (secretul clientului OAuth) și Cloudflare Turnstile (cheia secretă). Gol = oprite.
+if [ ! -f secrets/google_client_secret.txt ]; then
+  printf 'GOOGLE_CLIENT_SECRET (optional; Enter = fara Google): '
+  read gsecret
+  printf '%s' "$gsecret" > secrets/google_client_secret.txt
+fi
+if [ ! -f secrets/turnstile_secret_key.txt ]; then
+  printf 'TURNSTILE_SECRET_KEY (optional; Enter = fara verificare anti-robot): '
+  read tsecret
+  printf '%s' "$tsecret" > secrets/turnstile_secret_key.txt
+fi
 chmod 644 secrets/*.txt   # imaginea postgres citește fișierul ca alt utilizator
 echo "Gata. Secretele sunt in ./secrets (ignorate de Git)."

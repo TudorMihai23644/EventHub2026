@@ -16,6 +16,11 @@ export const FORGOT_MESSAGE = 'Dacă există un cont cu această adresă, vei pr
 // Un singur mesaj pentru link inexistent / expirat / deja folosit: nimic de ghicit.
 export const INVALID_RESET = 'Linkul de resetare nu mai este valabil. Cere unul nou.';
 export const INVALID_VERIFY = 'Linkul de confirmare nu mai este valabil. Cere unul nou.';
+export const NO_PASSWORD_LOGIN = 'Acest cont se conectează cu Google. Folosește butonul „Continuă cu Google” sau setează o parolă cu „Ai uitat parola?”.';
+const noPassword = (field: string) => {
+  const message = 'Contul tău nu are încă parolă (te conectezi cu Google). Setează una cu „Ai uitat parola?” din pagina de autentificare.';
+  return new BadRequestException({ statusCode: 400, error: 'Bad Request', code: 'NO_PASSWORD', message, fields: { [field]: message } });
+};
 
 @Injectable()
 export class AuthService {
@@ -48,7 +53,11 @@ export class AuthService {
 
   async login(dto: LoginDto, userAgent?: string) {
     const user = await this.users.findByEmailWithPassword(normalizeEmail(dto.email));
-    if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
+    if (user && !user.passwordHash) {
+      // cont creat cu Google: n-are parolă (adresa se poate afla oricum: înregistrarea răspunde 409)
+      throw new UnauthorizedException({ statusCode: 401, error: 'Unauthorized', code: 'USE_GOOGLE', message: NO_PASSWORD_LOGIN });
+    }
+    if (!user || !(await bcrypt.compare(dto.password, user.passwordHash!))) {
       throw new UnauthorizedException('Email sau parolă incorecte.');
     }
     return this.session(user, userAgent);
@@ -64,6 +73,50 @@ export class AuthService {
     const user = await this.users.findById(r.userId);
     if (!user) return null;
     return { accessToken: await this.accessToken(user), user: publicUser(user), refresh: r.refresh };
+  }
+
+  /**
+   * „Continuă cu Google” (Google a confirmat deja adresa: `email_verified`).
+   *  - cont legat deja de acest Google → autentificare;
+   *  - cont cu aceeași adresă → se leagă. Dacă adresa acelui cont NU era confirmată, cineva l-ar fi putut crea cu adresa
+   *    altcuiva, înainte ca adevăratul proprietar să vină cu Google: parola lui se șterge și sesiunile se închid, deci doar
+   *    proprietarul adresei rămâne cu acces;
+   *  - altfel, cont nou de participant (organizatorii au nevoie de codul de invitație), fără parolă, cu adresa confirmată.
+   */
+  async signInWithGoogle(g: { sub: string; email: string; name: string }, userAgent?: string) {
+    let user: User;
+    try {
+      user = await this.googleAccount(g);
+    } catch (e) {
+      // două conectări simultane, prima dată: a doua lovește constrângerea unică; la reîncercare găsește contul creat
+      if ((e as { code?: string }).code !== '23505') throw e;
+      user = await this.googleAccount(g);
+    }
+    return this.session(user, userAgent);
+  }
+
+  private googleAccount(g: { sub: string; email: string; name: string }) {
+    return this.dataSource.transaction(async (m) => {
+      const repo = m.getRepository(User);
+      const linked = await repo.findOne({ where: { googleId: g.sub } });
+      if (linked) return linked;
+      const existing = await repo.createQueryBuilder('u').addSelect('u.googleId').where('u.email = :email', { email: g.email }).setLock('pessimistic_write').getOne();
+      if (existing) {
+        if (existing.googleId) {
+          // adresa e deja legată de alt cont Google (ex. adresa a schimbat proprietarul în Google Workspace)
+          throw new ConflictException('Adresa acestui cont este legată de alt cont Google.');
+        }
+        if (existing.emailVerifiedAt) {
+          await repo.update({ id: existing.id }, { googleId: g.sub });
+        } else {
+          await repo.update({ id: existing.id }, { googleId: g.sub, emailVerifiedAt: () => 'now()', passwordHash: null, tokenVersion: () => '"tokenVersion" + 1' });
+          await this.sessions.revokeAllForUser(m, existing.id);
+          await this.tokens.revokeAll(m, existing.id, 'PASSWORD_RESET');
+        }
+        return repo.findOneByOrFail({ id: existing.id });
+      }
+      return repo.save(repo.create({ name: g.name, email: g.email, passwordHash: null, googleId: g.sub, role: 'PARTICIPANT', emailVerifiedAt: new Date() }));
+    });
   }
 
   /** Logout: închide sesiunea acestui dispozitiv (funcționează și cu access token-ul expirat). */
@@ -83,6 +136,7 @@ export class AuthService {
    */
   async changePassword(userId: string, current: string, next: string, userAgent?: string) {
     const user = await this.withPassword(userId);
+    if (!user.passwordHash) throw noPassword('currentPassword');
     if (!(await bcrypt.compare(current, user.passwordHash))) {
       const message = 'Parola curentă nu este corectă.';
       throw new BadRequestException({ statusCode: 400, error: 'Bad Request', message, fields: { currentPassword: message } });
@@ -104,6 +158,7 @@ export class AuthService {
   /** Confirmă parola contului (ex. înainte de ștergerea contului). */
   async assertPassword(userId: string, password: string) {
     const user = await this.withPassword(userId);
+    if (!user.passwordHash) throw noPassword('password');
     if (!(await bcrypt.compare(password, user.passwordHash))) {
       const message = 'Parola nu este corectă.';
       throw new BadRequestException({ statusCode: 400, error: 'Bad Request', message, fields: { password: message } });

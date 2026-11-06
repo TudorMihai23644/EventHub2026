@@ -80,6 +80,8 @@ interface ApiOptions {
   cookies?: boolean;
   /** Nu încerca reînnoirea la 401 (ex. login cu parolă greșită răspunde tot 401). */
   noRefresh?: boolean;
+  /** Antete în plus (ex. token-ul Turnstile). */
+  headers?: Record<string, string>;
 }
 
 // Singurul loc din aplicație care face cereri HTTP.
@@ -132,6 +134,7 @@ async function send(path: string, opts: ApiOptions, token: string | null): Promi
         ...(isForm ? {} : { 'Content-Type': 'application/json' }),
         ...(opts.cookies ? CLIENT_HEADER : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...opts.headers,
       },
       body: opts.body === undefined ? undefined : isForm ? (opts.body as FormData) : JSON.stringify(opts.body),
     });

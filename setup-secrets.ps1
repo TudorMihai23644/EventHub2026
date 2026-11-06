@@ -30,4 +30,13 @@ if (Missing 'cloudinary_url.txt') {
   $url = Read-Host 'CLOUDINARY_URL (optional; Enter = imagini pe disc)'
   Write-Secret 'cloudinary_url.txt' $url.Trim()
 }
+# Optionale: 'Continua cu Google' (secretul clientului OAuth) si Cloudflare Turnstile (cheia secreta). Gol = oprite.
+if (Missing 'google_client_secret.txt') {
+  $g = Read-Host 'GOOGLE_CLIENT_SECRET (optional; Enter = fara Google)'
+  Write-Secret 'google_client_secret.txt' $g.Trim()
+}
+if (Missing 'turnstile_secret_key.txt') {
+  $t = Read-Host 'TURNSTILE_SECRET_KEY (optional; Enter = fara verificare anti-robot)'
+  Write-Secret 'turnstile_secret_key.txt' $t.Trim()
+}
 Write-Host 'Gata. Secretele sunt in .\secrets (ignorate de Git).'

@@ -13,6 +13,8 @@ export const ENDPOINTS = {
     resetPassword: '/auth/password/reset',
     verifyEmail: '/auth/email/verify',
     resendVerification: '/auth/email/resend',
+    options: '/auth/options', // { google, turnstileSiteKey }
+    google: '/auth/google', // navigare (nu fetch): pleacă la Google și se întoarce în /autentificare-google
   },
   events: {
     list: (query = '') => `/events${query ? `?${query}` : ''}`,

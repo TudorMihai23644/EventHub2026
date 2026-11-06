@@ -8,6 +8,7 @@ import ProfilePage from './pages/ProfilePage';
 import PastEventsPage from './pages/PastEventsPage';
 import DashboardPage from './pages/DashboardPage';
 import CheckInPage from './pages/CheckInPage';
+import GoogleDonePage from './pages/GoogleDonePage';
 import EventFormPage from './pages/EventFormPage';
 import { ForgotPasswordPage, ResetPasswordPage } from './pages/PasswordPages';
 import VerifyEmailPage, { VerifyBanner } from './pages/VerifyEmailPage';
@@ -69,6 +70,7 @@ export default function App() {
           <Route path="/resetare-parola" element={<ResetPasswordPage />} />
           <Route path="/confirmare-email" element={<VerifyEmailPage />} />
           <Route path="/evenimente-trecute" element={<PastEventsPage />} />
+          <Route path="/autentificare-google" element={<GoogleDonePage />} />
           <Route path="/check-in" element={<CheckInPage />} />
           <Route path="/check-in/:code" element={<CheckInPage />} />
           <Route path="/cont" element={<RequireUser><ProfilePage /></RequireUser>} />

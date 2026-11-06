@@ -8,8 +8,9 @@ import { Loading } from './ui';
 interface AuthCtx {
   user: User | null;
   ready: boolean;
-  login: (email: string, password: string) => Promise<User>;
-  register: (data: { name: string; email: string; password: string; role: Role; inviteCode?: string }) => Promise<User>;
+  /** `headers`: token-ul Turnstile, dacă serverul cere verificarea anti-robot. */
+  login: (email: string, password: string, headers?: Record<string, string>) => Promise<User>;
+  register: (data: { name: string; email: string; password: string; role: Role; inviteCode?: string }, headers?: Record<string, string>) => Promise<User>;
   logout: () => void;
   /** Recitește contul de la API (ex. după confirmarea emailului). */
   refresh: () => Promise<void>;
@@ -57,10 +58,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value: AuthCtx = {
     user,
     ready,
-    login: async (email, password) =>
-      start(await api<Session>(ENDPOINTS.auth.login, { method: 'POST', body: { email, password }, cookies: true, noRefresh: true })),
-    register: async (data) =>
-      start(await api<Session>(ENDPOINTS.auth.register, { method: 'POST', body: data, cookies: true, noRefresh: true })),
+    login: async (email, password, headers) =>
+      start(await api<Session>(ENDPOINTS.auth.login, { method: 'POST', body: { email, password }, cookies: true, noRefresh: true, headers })),
+    register: async (data, headers) =>
+      start(await api<Session>(ENDPOINTS.auth.register, { method: 'POST', body: data, cookies: true, noRefresh: true, headers })),
     logout: () => {
       // serverul revocă sesiunea și șterge cookie-ul; local uităm imediat access token-ul
       api(ENDPOINTS.auth.logout, { method: 'POST', cookies: true, noRefresh: true }).catch(() => {});

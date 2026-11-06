@@ -4,9 +4,11 @@ import { ApiError, api } from '../api';
 import { ENDPOINTS } from '../endpoints';
 import { useAuth } from '../auth';
 import { FieldError, formError, useToast } from '../ui';
+import { useHumanCheck } from '../signin-extras';
 
 /** /parola-uitata: cere un link de resetare. API-ul răspunde la fel indiferent dacă adresa are cont. */
 export function ForgotPasswordPage() {
+  const human = useHumanCheck('forgot');
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [fields, setFields] = useState<Record<string, string>>({});
@@ -19,12 +21,13 @@ export function ForgotPasswordPage() {
     setError('');
     setFields({});
     try {
-      const res = await api<{ message: string }>(ENDPOINTS.auth.forgotPassword, { method: 'POST', body: { email } });
+      const res = await api<{ message: string }>(ENDPOINTS.auth.forgotPassword, { method: 'POST', body: { email }, headers: human.headers });
       setDone(res.message);
     } catch (err) {
       const r = formError(err);
       setError(r.message);
       setFields(r.fields);
+      human.reset();
     } finally {
       setBusy(false);
     }
@@ -46,7 +49,8 @@ export function ForgotPasswordPage() {
       <p className="muted">Introdu adresa contului și îți trimitem un link pentru a alege o parolă nouă.</p>
       {error && <p className="alert err" role="alert">{error}</p>}
       <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /><FieldError error={fields.email} /></label>
-      <button className="btn" disabled={busy}>Trimite linkul</button>
+      {human.element}
+      <button className="btn" disabled={busy || human.waiting}>Trimite linkul</button>
       <p className="muted"><Link to="/login">Înapoi la autentificare</Link></p>
     </form>
   );

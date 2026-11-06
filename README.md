@@ -83,6 +83,9 @@ Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt def
 | POST | `/auth/logout` | cookie + antet `X-EventHub-Client` | 204; închide sesiunea acestui dispozitiv și șterge cookie-ul (merge și cu access token-ul expirat) |
 | POST | `/auth/logout-all` | autentificat + antet `X-EventHub-Client` | 204; închide toate sesiunile contului, de pe toate dispozitivele |
 | GET | `/auth/me` | autentificat | `{ id, name, email, role, emailVerified }` |
+| GET | `/auth/options` | public | `{ google, turnstileSiteKey }`: ce metode sunt active (cheia Turnstile e publică) |
+| GET | `/auth/google?next=` | public (navigare) | 302 spre Google (cod + PKCE + state + nonce); 404 dacă Google nu e configurat |
+| GET | `/auth/google/callback` | Google (navigare) | 302 în aplicație: `/autentificare-google` cu cookie-ul de sesiune, sau `/login?google=cancelled\|expired\|unverified\|error` |
 | POST | `/auth/password/forgot` | public | `{ email }` → mereu 202 cu același mesaj (nu dezvăluie dacă adresa are cont); 429 după 3/oră per adresă + IP, 20/oră per IP |
 | POST | `/auth/password/reset` | public | `{ token, password }` → 200; 400 `TOKEN_INVALID` (link inexistent, expirat sau folosit); închide toate sesiunile contului |
 | POST | `/auth/email/verify` | public | `{ token }` → 200; 400 `TOKEN_INVALID` |
@@ -237,6 +240,30 @@ sunt publice, dar adaptează răspunsul dacă cererea are token.
 | `COOKIE_SECURE` | `true` în producție | cookie doar prin HTTPS. `docker-compose.yml` îl pune pe `false` (local pe http) |
 | `COOKIE_SAMESITE` | `lax` | `strict` / `none` (`none` forțează Secure) |
 | `COOKIE_DOMAIN` | — | ex. `.eventhub.ro`, dacă frontend-ul și API-ul sunt pe subdomenii diferite |
+
+## Google, Turnstile, Sentry (opționale)
+
+Toate trei sunt **oprite** până primesc cheile lor; fără ele aplicația merge exact ca înainte.
+
+- **„Continuă cu Google”** (`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, în Docker `secrets/google_client_secret.txt`).
+  În Google Cloud Console: OAuth client de tip *Web application*, *Authorized redirect URI* = `PUBLIC_API_URL` + `/auth/google/callback`
+  (ex. `http://localhost:3000/api/auth/google/callback`).
+  - Fluxul cu cod de autorizare pe server, cu **PKCE**, **state** (anti-CSRF, într-un cookie httpOnly de 10 minute, SameSite=Lax) și **nonce**.
+    Din ID token se verifică emitentul, destinatarul (`aud` = clientul nostru), expirarea, nonce-ul și `email_verified`.
+  - Cont nou → **participant** cu adresa confirmată și **fără parolă** (își poate seta una cu „Ai uitat parola?”). Organizatorii se creează în
+    continuare doar cu codul de invitație; un organizator existent se poate conecta cu Google.
+  - Aceeași adresă ca un cont existent → conturile se leagă. Dacă adresa acelui cont **nu era confirmată**, oricine l-ar fi putut crea cu adresa
+    altcuiva: la legare, **parola lui se șterge și toate sesiunile se închid**, deci rămâne cu acces doar proprietarul adresei.
+  - Un cont fără parolă: autentificarea cu parolă răspunde `401 USE_GOOGLE`, schimbarea parolei / ștergerea contului `400 NO_PASSWORD`.
+- **Cloudflare Turnstile** (`TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`, în Docker `secrets/turnstile_secret_key.txt`) pe
+  înregistrare, autentificare și „Ai uitat parola?”. Widget-ul trimite token-ul în antetul `X-Turnstile-Token`; serverul îl verifică la Cloudflare
+  (`400 CAPTCHA_REQUIRED` / `CAPTCHA_FAILED`). Dacă **Cloudflare nu răspunde**, cererea trece (limitarea cererilor rămâne) și apare un
+  avertisment în log: o pană la ei nu blochează autentificarea. Chei de test: site `1x00000000000000000000AA`, secret `1x0000000000000000000000000000000AA`.
+- **Sentry**: backend `SENTRY_DSN` (doar erorile neprevăzute, 500; 400/401/403/404 nu), frontend `VITE_SENTRY_DSN` (erori de afișare și
+  excepții; fără DSN, SDK-ul nici nu intră în build). **Nimic personal**: fără cookie-uri, antete de autentificare, corpul cererilor, query string
+  (codul OAuth și token-urile din linkurile de resetare / confirmare sunt în adresă) și fără emailul utilizatorului. `SENTRY_TRACES_SAMPLE_RATE` (implicit 0) pentru performanță.
+
+Instalare existentă: rulează din nou `setup-secrets` (creează doar fișierele noi, goale dacă apeși Enter), altfel `docker compose` nu pornește.
 
 ## Cont: confirmarea emailului, resetarea parolei
 
