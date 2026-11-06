@@ -1,461 +1,601 @@
 # EventHub
 
-Aplicație web pentru organizarea evenimentelor și gestionarea înscrierilor.
+A web application for organising events and managing registrations (the interface is in Romanian).
 **Stack:** React (Vite, TypeScript) · NestJS (TypeScript, REST) · PostgreSQL · TypeORM · JWT.
 
-## Pornire rapidă
+| Events | Event | Sign-in | Phone |
+|---|---|---|---|
+| ![Event list](docs/design/evenimente.webp) | ![A paid event with a map](docs/design/eveniment.webp) | ![Sign-in form](docs/design/autentificare.webp) | ![Event page on a phone](docs/design/telefon-eveniment.webp) |
+
+## Getting started: step by step
+
+This takes about 10 minutes the first time. You end up with the site at **http://localhost:5100** and the API at
+**http://localhost:5200/api**, running on your own computer.
+
+### 1. Install the prerequisites (once)
+
+| Tool | Why | Download |
+|---|---|---|
+| **Git** | to download the code | https://git-scm.com/downloads |
+| **Docker Desktop** | runs the database and the API | https://www.docker.com/products/docker-desktop |
+| **Node.js 22.12 or newer** (LTS recommended) | runs the website while you work on it | https://nodejs.org |
+
+After installing Docker Desktop, **start it** and wait until it says *Engine running*. Docker needs about 2 GB of free memory to
+build the images; close heavy programs if your computer is low on memory.
+
+Check everything in a terminal (PowerShell on Windows, Terminal on Mac/Linux):
 
 ```bash
-# 0. Secretele (o singură dată): generează parolele și cere codul de invitație
-#    Windows:  powershell -ExecutionPolicy Bypass -File .\setup-secrets.ps1
-#    Mac/Linux: sh setup-secrets.sh
-
-# 1. PostgreSQL + API în Docker
-docker compose up --build        # API pe http://localhost:5200/api
-
-# 2. Frontend-ul, local (reîncărcare la salvare)
-cd frontend && npm install && npm run dev   # http://localhost:5100
-
-# sau totul în Docker, cu frontend-ul servit de nginx (în loc de pasul 2, nu împreună: același port)
-docker compose --profile web up --build     # http://localhost:5100
+git --version
+docker --version
+node --version     # must be v22.12 or higher
 ```
 
-În Docker, frontend-ul e servit de nginx cu antete de securitate, inclusiv **Content-Security-Policy**
-(`frontend/nginx/default.conf.template`): scripturi doar de pe site (+ Cloudflare Turnstile), conexiuni doar spre API (+ Sentry),
-imagini de la API, OpenStreetMap și Cloudinary, fără încadrare în alte site-uri. Adresa API-ului intră în build (`PUBLIC_API_URL`),
-iar originea ei în CSP la pornire (`API_ORIGIN`, implicit `http://localhost:5200`).
+### 2. Download the code
 
-### Porturi
+```bash
+git clone https://github.com/TudorMihai23644/EventHub2026.git
+cd EventHub2026
+```
 
-| | Port | Unde se schimbă |
+### 3. Create the secrets (once)
+
+The passwords are never stored in the code. A script creates them in the `secrets/` folder (ignored by Git):
+
+```bash
+# Windows (PowerShell)
+powershell -ExecutionPolicy Bypass -File .\setup-secrets.ps1
+
+# Mac / Linux
+sh setup-secrets.sh
+```
+
+It generates the database and session passwords and asks you a few questions:
+
+- **Organizer invite code**: type any word you will remember (e.g. `my-secret-code`). Only people who know it can create
+  organizer accounts. You can read it again later in `secrets/organizer_invite_code.txt`.
+- **Optional keys** (Resend, Cloudinary, Google, Turnstile, Stripe): **press Enter to skip each one.** The site works fully
+  without them; see [Optional services](#optional-services) to turn them on later.
+
+> **Run this before `docker compose up`.** If Docker starts first, it creates empty *folders* where the secret files should be, and
+> the API crashes with `EISDIR: illegal operation on a directory`. Running the script fixes that: it replaces the empty folders.
+
+### 4. Start the database and the API
+
+```bash
+docker compose up -d --build
+```
+
+The first build takes a few minutes. Check that the API is up: open **http://localhost:5200/api/health** in the browser; you should see
+`{"status":"ok","database":"up",...}`.
+
+### 5. Start the website
+
+In a **second** terminal:
+
+```bash
+cd frontend
+npm install        # first time only
+npm run dev
+```
+
+When it prints `Local: http://localhost:5100/`, open **http://localhost:5100**. 🎉
+
+### 6. Create your first accounts
+
+1. Click **„Creează cont”** (*Create account*) in the top right.
+2. **Participant** (signs up for events): fill in name, email, password. No code needed.
+3. **Organizer** (creates events): choose *Organizator* and enter the **invite code** from step 3.
+4. **Confirm the email address.** Until you do, participants cannot register for events and organizers cannot create them.
+   No real email is sent yet (that needs a Resend key, see [Email](#email)); instead the email, with its link, is written to the
+   API's log. Get the link with:
+
+   ```bash
+   # Windows (PowerShell)
+   docker compose logs backend | findstr "confirmare-email"
+   # Mac / Linux
+   docker compose logs backend | grep "confirmare-email"
+   ```
+
+   Open the last link (`http://localhost:5100/confirmare-email?token=...`) in the browser. Done: the account is confirmed.
+   The same trick works for password-reset links (`resetare-parola`).
+
+### 7. Stopping and starting again
+
+| What | Command |
+|---|---|
+| Stop the website | `Ctrl + C` in its terminal |
+| Stop the database and API | `docker compose stop` |
+| Start everything again next time | start Docker Desktop, `docker compose up -d`, then `cd frontend && npm run dev` |
+| Delete all data and start fresh | `docker compose down -v` (removes the database volume) |
+
+Your data (accounts, events) is kept in the Docker volume `pgdata` between restarts.
+
+### Alternative: everything in Docker
+
+If you don't plan to edit the frontend, Docker can serve it too (with nginx). Use **instead of** step 5, not together (same port):
+
+```bash
+docker compose --profile web up -d --build     # site on http://localhost:5100
+```
+
+### Troubleshooting
+
+| Problem | Cause and fix |
+|---|---|
+| The site says **„Serverul nu răspunde”** (*server not responding*) | The API isn't running or the page is on a different port. Check http://localhost:5200/api/health; start it with `docker compose up -d`. Open the site at **http://localhost:5100** (or `127.0.0.1:5100`), not another port. |
+| `Port 5100 is already in use` when running `npm run dev` | Something else holds the port, usually the Docker frontend (`--profile web`) or another `npm run dev`. Stop it (`docker compose --profile web stop frontend`), or use another port, see [Ports](#ports). |
+| The API logs `EISDIR: illegal operation on a directory, read` | `docker compose up` ran before the secrets existed. Run the secrets script (step 3), then `docker compose up -d --force-recreate`. |
+| `failed to connect to the docker API ... dockerDesktopLinuxEngine` | Docker Desktop isn't running. Start it and wait for *Engine running*. |
+| Docker stops or the build is killed | Not enough memory. Close other programs and run the command again. |
+| No confirmation email arrives | Expected without a Resend key: the link is in the API log (step 6). |
+| `Cod de invitație invalid` (*invalid invite code*) | The organizer code must match `secrets/organizer_invite_code.txt` exactly. After changing that file, restart the API: `docker compose up -d --force-recreate backend`. |
+
+## Ports
+
+| | Port | Where to change it |
 |---|---|---|
-| Frontend (`npm run dev` sau nginx din Docker) | **5100** | `FRONTEND_PORT` |
-| API | **5200** (același în container și în afara lui) | `API_PORT` |
-| PostgreSQL | 5432, doar pe `127.0.0.1` | `docker-compose.yml` |
-| PostgreSQL pentru teste | 55432, doar pe `127.0.0.1` | `TEST_DB_PORT` |
+| Frontend (`npm run dev` or the nginx container) | **5100** | `FRONTEND_PORT` |
+| API | **5200** (the same inside and outside its container) | `API_PORT` |
+| PostgreSQL | 5432, on `127.0.0.1` only | `docker-compose.yml` |
+| PostgreSQL for tests | 55432, on `127.0.0.1` only | `TEST_DB_PORT` |
 
-Pentru alte porturi, pune într-un fișier `.env` lângă `docker-compose.yml` (ex. `FRONTEND_PORT=5101`, `API_PORT=5300`): adresele derivate
-(`APP_URL`, `PUBLIC_API_URL`, CORS, CSP, linkurile din emailuri) se schimbă singure. Pentru `npm run dev` pe alt port:
-`FRONTEND_PORT=5101 npm run dev` și `VITE_API_URL` în `frontend/.env`.
+For other ports, put them in a `.env` file next to `docker-compose.yml` (e.g. `FRONTEND_PORT=5101`, `API_PORT=5300`): all derived
+addresses (`APP_URL`, `PUBLIC_API_URL`, CORS, CSP, links in emails) follow automatically. For `npm run dev` on another port:
+`FRONTEND_PORT=5101 npm run dev`, and set `VITE_API_URL` in `frontend/.env`.
 
-Ca să nu mai apară conflicte:
-- **un port ocupat oprește pornirea cu un mesaj clar**: Vite (`strictPort`) și API-ul nu mai trec în tăcere pe alt port, unde
-  CORS ar respinge cererile („Serverul nu răspunde”);
-- **frontend-ul nginx din Docker e opțional** (`--profile web`): `docker compose up` nu mai ocupă portul lui `npm run dev`;
-- **CORS acceptă și `127.0.0.1`** pentru o adresă `localhost` (și invers): aceeași pagină, deschisă pe oricare variantă, merge;
-- **valorile implicite sunt într-un singur loc** (`backend/src/common/urls.ts`); `urls.spec.ts` verifică la fiecare rulare a testelor
-  (și în CI) că `docker-compose.yml`, `vite.config.ts`, `.env.development`, `.env.example` și Dockerfile-urile au aceleași porturi.
+How conflicts are prevented:
+- **a busy port stops startup with a clear message**: Vite (`strictPort`) and the API never silently move to another port, where CORS
+  would reject every request ("server not responding");
+- **the nginx frontend in Docker is optional** (`--profile web`): `docker compose up` never takes the port of `npm run dev`;
+- **CORS also accepts `127.0.0.1`** for a `localhost` address (and vice versa), so the page works on either;
+- **defaults live in one place** (`backend/src/common/urls.ts`); `urls.spec.ts` checks on every test run (and in CI) that
+  `docker-compose.yml`, `vite.config.ts`, `.env.development`, `.env.example` and the Dockerfiles agree on the ports.
 
-Fără Docker pentru backend: pornește doar `docker compose up db`, apoi
-`cd backend && cp .env.example .env`, completează în `.env` aceleași valori ca în `secrets/*.txt` și rulează `npm install && npm run start:dev`.
+In Docker, the frontend is served by nginx with security headers, including a **Content-Security-Policy**
+(`frontend/nginx/default.conf.template`): scripts only from the site (+ Cloudflare Turnstile), connections only to the API (+ Sentry),
+images from the API, OpenStreetMap and Cloudinary, no framing by other sites. The API address is baked into the build
+(`PUBLIC_API_URL`), and its origin goes into the CSP at startup (`API_ORIGIN`, default `http://localhost:5200`).
 
-Datele sunt păstrate în volumul Docker `pgdata` și rămân după repornire.
-Tabelele se creează prin migrări, rulate automat la pornirea API-ului (vezi [Migrări](#migrări)). O bază creată înainte de migrări este recunoscută și păstrată.
+**Backend without Docker:** start only the database (`docker compose up -d db`), then `cd backend && cp .env.example .env`, fill in
+`.env` with the same values as in `secrets/*.txt`, and run `npm install && npm run start:dev`.
 
-## Configurare
+Tables are created by migrations, run automatically when the API starts (see [Migrations](#migrations)). A database created before
+migrations existed is recognised and kept.
 
-- **Adresa API-ului (frontend):** `VITE_API_URL` în `frontend/.env` (implicit `http://localhost:5200/api`, din `.env.development`).
-  Toate cererile trec prin `src/api.ts`, care folosește `API_URL` din `src/config.ts`; nu există adrese scrise direct în pagini.
-- **Conturi de organizator:** se creează doar cu codul de invitație din `secrets/organizer_invite_code.txt`.
-  Dacă lipsește, nimeni nu se poate înregistra ca organizator.
-  Participanții se înregistrează liber. Codul se dă doar persoanelor de încredere.
+## Configuration
 
-## Secrete
+- **API address (frontend):** `VITE_API_URL` in `frontend/.env` (default `http://localhost:5200/api`, from `.env.development`).
+  Every request goes through `src/api.ts`, which uses `API_URL` from `src/config.ts`; no page contains a hard-coded address.
+- **Organizer accounts:** can only be created with the invite code from `secrets/organizer_invite_code.txt`.
+  If it's missing, nobody can register as an organizer. Participants register freely. Give the code only to people you trust.
 
-Nicio valoare secretă nu este în cod sau în `docker-compose.yml`. Sunt în `secrets/`
-(`db_password.txt`, `jwt_secret.txt`, `organizer_invite_code.txt`, `resend_api_key.txt`, `cloudinary_url.txt`), ignorat de Git. Docker Compose le
-declară în secțiunea `secrets:` și le montează în containere ca fișiere în `/run/secrets`,
-deci nu apar în `docker inspect`, în imagini sau în `docker compose config`. Backend-ul le citește prin
-`NUME_FILE` (vezi `backend/src/common/secrets.ts`) și nu pornește dacă lipsește `JWT_SECRET` sau parola bazei de date.
-PostgreSQL este expus doar pe `127.0.0.1`. Frontend-ul nu conține secrete: variabilele `VITE_*` ajung în browser, deci acolo se pune doar adresa publică a API-ului.
+## Secrets
 
-Dacă schimbi `db_password.txt` după ce baza a fost creată, rulează `docker compose down -v` (șterge datele locale), altfel parola din volum rămâne cea veche.
+No secret value is in the code or in `docker-compose.yml`. They live in `secrets/` (ignored by Git):
 
-`resend_api_key.txt` și `cloudinary_url.txt` sunt opționale, dar fișierele trebuie să existe (pot fi goale), altfel `docker compose` nu pornește.
-Dacă ai rulat scriptul de secrete înainte de ele, rulează-l din nou: creează doar fișierele care lipsesc.
+| File | Required | Content |
+|---|---|---|
+| `db_password.txt` | yes | database password (generated) |
+| `jwt_secret.txt` | yes | session signing key (generated) |
+| `organizer_invite_code.txt` | yes | invite code for organizer accounts |
+| `resend_api_key.txt` | no (may be empty) | [Email](#email) |
+| `cloudinary_url.txt` | no (may be empty) | cover images in the cloud |
+| `google_client_secret.txt` | no (may be empty) | "Continue with Google" |
+| `turnstile_secret_key.txt` | no (may be empty) | anti-robot check |
+| `stripe_secret_key.txt`, `stripe_webhook_secret.txt` | no (may be empty) | [Paid tickets](#paid-tickets-stripe-optional) |
 
-## Teste și verificări
+Docker Compose declares them under `secrets:` and mounts them into the containers as files in `/run/secrets`, so they don't appear in
+`docker inspect`, in images, or in `docker compose config`. The backend reads them via `NAME_FILE` (see `backend/src/common/secrets.ts`)
+and refuses to start without `JWT_SECRET` or the database password. PostgreSQL is exposed only on `127.0.0.1`. The frontend contains
+no secrets: `VITE_*` variables end up in the browser, so only the public API address goes there.
 
-Fiecare push / pull request rulează **CI** (`.github/workflows/ci.yml`): pentru backend și frontend lint, tipuri, cod nefolosit (knip), teste
-și build; pentru backend și testele de integrare pe PostgreSQL real și verificarea că migrările corespund entităților; apoi pornește
-toată aplicația cu `docker compose up` și verifică API-ul, frontend-ul și antetul CSP. Local, aceleași comenzi:
+The optional files must **exist** (they may be empty), otherwise `docker compose` won't start. If you set up an older version, run
+the secrets script again: it only creates missing files (and replaces empty folders Docker created by mistake).
+
+If you change `db_password.txt` after the database was created, either run `docker compose down -v` (deletes local data) or set the
+new password inside the database, otherwise the volume keeps the old one.
+
+## Tests and checks
+
+Every push / pull request runs **CI** (`.github/workflows/ci.yml`): for backend and frontend, lint, types, unused code (knip), tests
+and build; for the backend also the integration tests on a real PostgreSQL and a check that migrations match the entities; then it
+starts the whole application with `docker compose --profile web up` and checks the API, the frontend and the CSP header. Locally, the
+same commands:
 
 ```bash
 cd backend  && npm run lint && npm run typecheck && npm run knip && npm test
 cd frontend && npm run lint && npm run typecheck && npm run knip && npm test
 ```
 
-Frontend (Vitest + Testing Library, `src/*.test.ts(x)`): conversia lei ↔ bani, întoarcerea sigură după autentificare (`safeNext`),
-adresele trimise la Sentry fără token-uri, pagina de validare a biletelor (verdicte, o singură cerere și în StrictMode, vizitator / participant),
-codul QR al biletului și `ErrorBoundary`.
+**Frontend** (Vitest + Testing Library, `src/*.test.ts(x)`): lei ↔ bani (cents) conversion, the safe return after sign-in (`safeNext`),
+URLs sent to Sentry without tokens, the ticket check-in page (verdicts, a single request even under StrictMode, visitor / participant),
+the ticket QR code, the theme toggle and `ErrorBoundary`.
 
-```bash
-cd backend && npm test
-```
-Teste unitare pentru regulile de înscriere (duplicat, capacitate, eveniment trecut, succes, eveniment inexistent), anulare (după începere, neînscris, lock), modificarea capacității (sub numărul de înscriși, alt organizator, lock), înregistrarea organizatorilor (cod lipsă, greșit, neconfigurat, corect), limitarea cererilor (429 după limită, IP + email, rute nelimitate, comutatorul Swagger), setările bazei de date (fără `synchronize`, migrări, `DB_MIGRATIONS_RUN`), validarea (parametrii de listare, mesajele câmp cu câmp, `null` la editare), `escapeLike`, emailurile (conținut, escapare HTML, ora din București, reîncercări, `ResendMailer` pe un server Resend fals), contul (confirmarea emailului cerută la înscriere, mesajul 429 cu timpul rămas, emailurile de resetare/confirmare) și codificarea fișierelor sursă (fără text dublu codificat).
+**Backend unit tests** (`npm test`): registration rules (duplicate, capacity, past event, success, missing event), cancellation (after
+start, not registered, lock), capacity changes (below the number registered, another organizer, lock), organizer sign-up (code missing,
+wrong, not configured, correct), rate limiting (429 after the limit, IP + email, unlimited routes, the Swagger switch), database
+settings (no `synchronize`, migrations, `DB_MIGRATIONS_RUN`), validation (list parameters, field-by-field messages, `null` on edit),
+`escapeLike`, emails (content, HTML escaping, Bucharest time, retries, `ResendMailer` against a fake Resend server), the account
+(email confirmation required to register, the 429 message with time left, reset / confirmation emails), port consistency, and source
+file encoding (no double-encoded text).
 
-**Teste de integrare** (pe un PostgreSQL real, cu schema creată de migrări; au nevoie de Docker):
+**Integration tests** (on a real PostgreSQL, schema created by migrations; they need Docker):
 
 ```bash
 cd backend
-npm run test:db:up     # pornește un PostgreSQL temporar pe 127.0.0.1:55432 (baza eventhub_test)
-npm run test:int       # paginare, căutare, rezumat; emailuri (coadă, rollback, 2 worker-e); cont (linkuri, resetare, sesiuni)
-npm run test:db:down   # oprește și șterge containerul
+npm run test:db:up     # starts a temporary PostgreSQL on 127.0.0.1:55432 (database eventhub_test)
+npm run test:int       # pagination, search, summaries; emails (queue, rollback, 2 workers); account; payments; tickets; map; …
+npm run test:db:down   # stops and removes the container
 ```
 
-Testele de integrare șterg toate tabelele din baza de test și refuză să ruleze pe o bază al cărei nume nu conține „test”,
-sau cât timp alt program (ex. un API pornit pe ea) e conectat la baza de test: worker-ele lui ar procesa datele testelor.
-Altă bază: `TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_USER`, `TEST_DB_PASSWORD`, `TEST_DB_NAME`.
+Integration tests wipe every table in the test database. They refuse to run on a database whose name doesn't contain "test", or
+while another program (e.g. an API started against it) is connected: its background workers would process the tests' data.
+Another database: `TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_USER`, `TEST_DB_PASSWORD`, `TEST_DB_NAME`.
 
 ## API
 
-Documentație interactivă (poți trimite orice cerere din browser): `http://localhost:5200/api/docs`.
-Este pornită implicit în afara producției și în `docker compose` local (`SWAGGER_ENABLED=true`); într-o instalare de producție lipsește, dacă nu setezi `SWAGGER_ENABLED=true`.
-Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt definite într-un singur loc:
-`backend/src/common/routes.ts` (backend) și `frontend/src/endpoints.ts` (frontend).
+Interactive documentation (send any request from the browser): **http://localhost:5200/api/docs**.
+It is on by default outside production and in local `docker compose` (`SWAGGER_ENABLED=true`); in a production install it's off unless
+you set `SWAGGER_ENABLED=true`. All routes are prefixed with `/api` (e.g. `POST /api/auth/login`). The URIs are defined in one place:
+`backend/src/common/routes.ts` (backend) and `frontend/src/endpoints.ts` (frontend).
 
-| Metodă | Rută | Acces | Note |
+| Method | Route | Access | Notes |
 |---|---|---|---|
-| GET | `/health` | public | verifică API-ul și conexiunea la PostgreSQL (200 / 503) |
-| POST | `/auth/register` | public | 201, `{accessToken, user}` + cookie `eh_refresh`; rolul `ORGANIZER` cere `inviteCode` valid, altfel 403; 429 după 10 conturi/oră de pe același IP |
-| POST | `/auth/login` | public | 200 `{accessToken, user}` + cookie `eh_refresh` / 401 / 429 (5/min per cont + IP, 30/min per IP) |
-| POST | `/auth/refresh` | cookie `eh_refresh` + antet `X-EventHub-Client: web` | 200 `{accessToken, user}` + cookie nou; 401 (sesiune invalidă, cookie șters); 403 fără antet; 30/min per IP |
-| POST | `/auth/logout` | cookie + antet `X-EventHub-Client` | 204; închide sesiunea acestui dispozitiv și șterge cookie-ul (merge și cu access token-ul expirat) |
-| POST | `/auth/logout-all` | autentificat + antet `X-EventHub-Client` | 204; închide toate sesiunile contului, de pe toate dispozitivele |
-| GET | `/auth/me` | autentificat | `{ id, name, email, role, emailVerified }` |
-| GET | `/auth/options` | public | `{ google, turnstileSiteKey }`: ce metode sunt active (cheia Turnstile e publică) |
-| GET | `/auth/google?next=` | public (navigare) | 302 spre Google (cod + PKCE + state + nonce); 404 dacă Google nu e configurat |
-| GET | `/auth/google/callback` | Google (navigare) | 302 în aplicație: `/autentificare-google` cu cookie-ul de sesiune, sau `/login?google=cancelled\|expired\|unverified\|error` |
-| POST | `/auth/password/forgot` | public | `{ email }` → mereu 202 cu același mesaj (nu dezvăluie dacă adresa are cont); 429 după 3/oră per adresă + IP, 20/oră per IP |
-| POST | `/auth/password/reset` | public | `{ token, password }` → 200; 400 `TOKEN_INVALID` (link inexistent, expirat sau folosit); închide toate sesiunile contului |
+| GET | `/health` | public | checks the API and the PostgreSQL connection (200 / 503) |
+| POST | `/auth/register` | public | 201, `{accessToken, user}` + cookie `eh_refresh`; role `ORGANIZER` needs a valid `inviteCode`, otherwise 403; 429 after 10 accounts/hour from the same IP |
+| POST | `/auth/login` | public | 200 `{accessToken, user}` + cookie `eh_refresh` / 401 / 429 (5/min per account + IP, 30/min per IP) |
+| POST | `/auth/refresh` | cookie `eh_refresh` + header `X-EventHub-Client: web` | 200 `{accessToken, user}` + new cookie; 401 (invalid session, cookie cleared); 403 without the header; 30/min per IP |
+| POST | `/auth/logout` | cookie + header `X-EventHub-Client` | 204; ends this device's session and clears the cookie (works with an expired access token too) |
+| POST | `/auth/logout-all` | signed in + header `X-EventHub-Client` | 204; ends every session of the account, on all devices |
+| GET | `/auth/me` | signed in | `{ id, name, email, role, emailVerified }` |
+| GET | `/auth/options` | public | `{ google, turnstileSiteKey }`: which sign-in methods are on (the Turnstile key is public) |
+| GET | `/auth/google?next=` | public (navigation) | 302 to Google (code + PKCE + state + nonce); 404 if Google isn't configured |
+| GET | `/auth/google/callback` | Google (navigation) | 302 back to the app: `/autentificare-google` with the session cookie, or `/login?google=cancelled\|expired\|unverified\|error` |
+| POST | `/auth/password/forgot` | public | `{ email }` → always 202 with the same message (doesn't reveal whether the address has an account); 429 after 3/hour per address + IP, 20/hour per IP |
+| POST | `/auth/password/reset` | public | `{ token, password }` → 200; 400 `TOKEN_INVALID` (link missing, expired or used); ends every session of the account |
 | POST | `/auth/email/verify` | public | `{ token }` → 200; 400 `TOKEN_INVALID` |
-| POST | `/auth/email/resend` | autentificat | 202 cu un link nou (cel vechi se anulează); 400 dacă adresa e deja confirmată; 5/oră per IP |
-| GET | `/events/past?search=&category=&page=&limit=` | public | arhiva: evenimentele care au început, cele mai recente întâi |
-| GET | `/events/:id/registrations.csv` | organizator proprietar | CSV (Excel): înscrișii, apoi lista de așteptare |
-| GET | `/events/:id/stats` | organizator proprietar | ocupare, lista de așteptare, înscrieri pe zile, prezenți și absenți (`noShow` e null înainte de început) |
-| POST | `/check-in` | organizator | `{ code }` → 200 `{ result: CHECKED_IN \| ALREADY_CHECKED_IN, checkedInAt, participant: { name }, event }`; 404 cod necunoscut sau al altui organizator; 400 cod invalid sau în afara ferestrei |
-| POST | `/events/:id/checkout` | participant cu email confirmat | eveniment cu plată → `{ url, expiresAt }` (pagina Stripe; locul e rezervat); 409 `SOLD_OUT` / deja înscris; 503 plăți oprite sau Stripe indisponibil |
-| POST | `/payments/webhook` | Stripe (semnătură) | `Stripe-Signature` verificată pe corpul brut; 400 semnătură greșită |
-| PUT | `/events/:id/attendance/:registrationId` | organizator proprietar | `{ present: boolean }` → `{ id, checkedInAt }`; de la deschiderea ferestrei, și după eveniment (corecturi) |
-| PATCH | `/account` | autentificat | `{ name }` |
-| POST | `/account/password` | autentificat + antet `X-EventHub-Client` | `{ currentPassword, newPassword }` → sesiune nouă pentru acest dispozitiv, celelalte închise |
-| DELETE | `/account` | autentificat + antet `X-EventHub-Client` | `{ password }` → 204; vezi „Contul meu” |
-| GET | `/events/categories` | public | `{ categories, formats }` cu etichetele în română |
-| GET | `/events?search=&sort=asc\|desc&available=true&category=&page=1&limit=20` | public | doar evenimente viitoare; răspuns paginat `{ items, total, page, limit, totalPages }`; `limit` maxim 50, `search` maxim 100 de caractere (`%` și `_` se caută literal); 400 pentru valori invalide |
-| GET | `/events/:id/registrations` | organizator proprietar | lista participanților înscriși |
-| GET | `/events/:id` | public | include `registeredCount`, `availableSeats` și `calendar: { google, icsPath }` |
-| POST | `/events/:id/cover` | organizator proprietar | `multipart/form-data`, câmpul `file`: JPEG/PNG/WebP ≤ 5 MB → 200 `{ cover: { small, large } }`; 400 tip/imagine invalidă; 413 prea mare |
-| DELETE | `/events/:id/cover` | organizator proprietar | 204 |
-| GET | `/uploads/:file` | public | imaginile de copertă (stocarea locală), `image/webp`, cache un an |
-| GET | `/events/:id/calendar.ics` | public | fișier iCalendar (`text/calendar`), pentru Apple Calendar, Outlook, telefoane |
-| GET | `/events/mine` | organizator | dashboard cu numărul de înscrieri |
-| GET | `/events/mine/summary` | organizator | `{eventsCount, upcomingCount, totalRegistrations, totalWaiting}` |
-| POST | `/events` | organizator cu email confirmat | 201 / 400 / 403 `EMAIL_NOT_VERIFIED` |
-| PATCH | `/events/:id` | organizator proprietar | 403 dacă nu este proprietar |
-| DELETE | `/events/:id` | organizator proprietar | 204 |
-| POST | `/events/:id/registrations` | participant cu email confirmat | 201 / 400 (trecut) / 403 `EMAIL_NOT_VERIFIED` / 409 (duplicat, plin) |
-| DELETE | `/events/:id/registrations` | participant | 204 / 400 (început) / 404; locul eliberat merge la primul de pe lista de așteptare |
+| POST | `/auth/email/resend` | signed in | 202 with a new link (the old one is cancelled); 400 if already confirmed; 5/hour per IP |
+| GET | `/events?search=&sort=asc\|desc&available=true&category=&page=1&limit=20` | public | upcoming events only; paginated `{ items, total, page, limit, totalPages }`; `limit` at most 50, `search` at most 100 characters (`%` and `_` match literally); 400 for invalid values |
+| GET | `/events/past?search=&category=&page=&limit=` | public | the archive: events that have started, most recent first |
+| GET | `/events/categories` | public | `{ categories, formats, payments }` with Romanian labels |
+| GET | `/events/:id` | public | includes `registeredCount`, `availableSeats` and `calendar: { google, icsPath }` |
+| GET | `/events/:id/calendar.ics` | public | iCalendar file (`text/calendar`) for Apple Calendar, Outlook, phones |
+| GET | `/uploads/:file` | public | cover images (local storage), `image/webp`, cached for a year |
+| GET | `/events/mine` | organizer | dashboard with registration counts |
+| GET | `/events/mine/summary` | organizer | `{eventsCount, upcomingCount, totalRegistrations, totalWaiting}` |
+| POST | `/events` | organizer with confirmed email | 201 / 400 / 403 `EMAIL_NOT_VERIFIED` |
+| PATCH | `/events/:id` | owning organizer | 403 if not the owner |
+| DELETE | `/events/:id` | owning organizer | 204 |
+| POST | `/events/:id/cover` | owning organizer | `multipart/form-data`, field `file`: JPEG/PNG/WebP ≤ 5 MB → 200 `{ cover: { small, large } }`; 400 invalid type/image; 413 too large |
+| DELETE | `/events/:id/cover` | owning organizer | 204 |
+| GET | `/events/:id/registrations` | owning organizer | registered participants |
+| GET | `/events/:id/registrations.csv` | owning organizer | CSV (Excel): registered, then the waitlist |
+| GET | `/events/:id/stats` | owning organizer | occupancy, waitlist, registrations per day, present / no-show (`noShow` is null before the start), revenue |
+| GET | `/events/:id/waitlist` | owning organizer | who is waiting, in order |
+| PUT | `/events/:id/attendance/:registrationId` | owning organizer | `{ present: boolean }` → `{ id, checkedInAt }`; from when the window opens, and after the event (corrections) |
+| POST | `/check-in` | organizer | `{ code }` → 200 `{ result: CHECKED_IN \| ALREADY_CHECKED_IN, checkedInAt, participant: { name }, event }`; 404 unknown code or another organizer's; 400 invalid code or outside the window |
+| POST | `/events/:id/registrations` | participant with confirmed email | 201 / 400 (past) / 403 `EMAIL_NOT_VERIFIED` / 409 (duplicate, full, `PAYMENT_REQUIRED`) |
+| DELETE | `/events/:id/registrations` | participant | 204 / 400 (started) / 404; the freed seat goes to the first person on the waitlist |
 | GET | `/registrations/me` | participant | |
-| POST | `/events/:id/waitlist` | participant cu email confirmat | 201 `{ position, waitlistCount }`; doar când evenimentul e plin (altfel 409 `SEATS_AVAILABLE`); 409 dacă ești înscris / deja pe listă; 400 eveniment trecut |
+| POST | `/events/:id/waitlist` | participant with confirmed email | 201 `{ position, waitlistCount }`; only when the event is full (otherwise 409 `SEATS_AVAILABLE`); 409 if registered / already waiting; 400 past event |
 | DELETE | `/events/:id/waitlist` | participant | 204 / 404 |
-| GET | `/events/:id/waitlist` | organizator proprietar | cine așteaptă, în ordine |
-| GET | `/waitlist/me` | participant | listele de așteptare proprii, cu locul pe fiecare |
+| GET | `/waitlist/me` | participant | own waitlists, with the position on each |
+| POST | `/events/:id/checkout` | participant with confirmed email | paid event → `{ url, expiresAt }` (the Stripe page; the seat is held); 409 `SOLD_OUT` / already registered; 503 payments off or Stripe unavailable |
+| POST | `/payments/webhook` | Stripe (signature) | `Stripe-Signature` verified on the raw body; 400 bad signature |
+| PATCH | `/account` | signed in | `{ name }` |
+| POST | `/account/password` | signed in + header `X-EventHub-Client` | `{ currentPassword, newPassword }` → a new session for this device, the others ended |
+| DELETE | `/account` | signed in + header `X-EventHub-Client` | `{ password }` → 204; see [My account](#my-account-cont) |
 
-**Toată logica este în API.** Frontend-ul doar afișează răspunsurile. Evenimentele vin cu starea calculată pe server
-(`status`: OPEN/FULL/PAST, `isRegistered`, `canRegister`, `mustVerifyEmail`, `canCancel`, `canEdit`, `occupancyPercent`,
-`waitlistCount`, `isWaitlisted`, `waitlistPosition`, `canJoinWaitlist`, `canLeaveWaitlist`, `ticket`, `checkIn`), iar erorile de validare
-vin ca `{ message, fields: { câmp: mesaj } }` și se afișează lângă fiecare câmp. Rutele `GET /events` și `GET /events/:id`
-sunt publice, dar adaptează răspunsul dacă cererea are token.
+**All logic lives in the API.** The frontend only displays responses. Events come with their state computed on the server
+(`status`: OPEN/FULL/ONGOING/PAST, `isRegistered`, `canRegister`, `mustVerifyEmail`, `canCancel`, `canEdit`, `occupancyPercent`,
+`waitlistCount`, `isWaitlisted`, `waitlistPosition`, `canJoinWaitlist`, `canLeaveWaitlist`, `ticket`, `checkIn`, `price`, `canBuy`, `map`),
+and validation errors come as `{ message, fields: { field: message } }`, shown next to each field. `GET /events` and `GET /events/:id`
+are public, but adapt the response when the request carries a token.
 
-## Memento și calendar
+## Reminders and calendar
 
-- **Memento cu o zi înainte.** Un job (la fiecare 15 minute) trimite un email „Mâine / Astăzi / Începe în curând: «Titlu»” participanților
-  înscriși la evenimentele care încep în următoarele 24 de ore. Doar o dată per înscriere (`registrations.reminderSentAt`, marcat în aceeași
-  tranzacție în care emailul intră în coadă; două instanțe ale API-ului nu trimit de două ori).
-- Nu primesc memento: cei înscriși (sau promovați de pe listă) cu mai puțin de 24 de ore înainte (tocmai au primit confirmarea) și cei de pe
-  lista de așteptare. Dacă organizatorul mută data, memento-ul se trimite din nou, pentru noua dată.
-- **Adaugă în calendar:** pe pagina evenimentului și în emailurile de confirmare, „ai primit un loc” și memento: link Google Calendar și fișier
-  `.ics` (`GET /events/:id/calendar.ics`). Orele sunt în UTC; fiecare calendar le arată în fusul orar al utilizatorului. UID-ul este fix, deci
-  un import după o modificare înlocuiește intrarea. Se folosește ora de sfârșit; fără ea, în calendar evenimentul durează **2 ore**.
-- Emailurile conțin linkuri, nu atașamente (endpointul batch Resend folosit de coadă nu acceptă atașamente).
+- **Reminder the day before.** A job (every 15 minutes) emails "Tomorrow / Today / Starting soon: «Title»" to participants registered
+  for events starting within the next 24 hours. Once per registration (`registrations.reminderSentAt`, set in the same transaction that
+  queues the email; two API instances never send it twice).
+- No reminder for people who registered (or were promoted from the waitlist) less than 24 hours before (they just got the
+  confirmation), nor for people on the waitlist. If the organizer moves the date, the reminder is sent again for the new date.
+- **Add to calendar:** on the event page and in the confirmation, "you got a seat" and reminder emails: a Google Calendar link and an
+  `.ics` file (`GET /events/:id/calendar.ics`). Times are in UTC; each calendar shows them in the user's time zone. The UID is fixed,
+  so re-importing after a change replaces the entry. The end time is used; without one, the event lasts **2 hours** in the calendar.
+- Emails contain links, not attachments (the Resend batch endpoint used by the queue doesn't accept attachments).
 
-## Detaliile unui eveniment
+## Event details
 
-- **Ora de sfârșit** (opțională): după început, cel mult 14 zile. Dacă organizatorul mută doar începutul, sfârșitul se mută la fel (durata rămâne).
-  „Trecut” înseamnă în continuare „a început” (înscrierea, anularea, lista de așteptare se închid la început); între început și sfârșit
-  evenimentul apare „În desfășurare” (`status: ONGOING`).
-- **Categorie** (obligatorie): Concert, Conferință, Atelier / Workshop, Sport, Teatru și film, Expoziție, Comunitate, Altele
-  (`backend/src/events/categories.ts`, servite la `GET /events/categories`). Filtrul `?category=` merge cu paginarea și celelalte filtre.
-  Evenimentele create înainte au categoria „Altele”.
-- **Format:** fizic (locație obligatorie), online (link obligatoriu, locul afișat „Online”) sau hibrid (amândouă). Linkul trebuie să fie `https://`.
-  **Linkul îl văd doar participanții înscriși și organizatorul** (pagina evenimentului, emailurile de confirmare, „ai primit un loc”, memento,
-  „s-a schimbat linkul”). Lista publică, `.ics`, linkul Google și cei de pe lista de așteptare nu îl primesc (`hasOnlineLink` spune doar că există).
-- **Imagine de copertă** (opțională): `POST /events/:id/cover` (organizatorul, `multipart/form-data`, câmpul `file`), `DELETE /events/:id/cover`.
-  - Verificată pe server: cel mult **5 MB** (încărcarea se oprește peste limită, 413), tipul stabilit din conținut (semnătura fișierului, nu numele):
-    doar **JPEG, PNG, WebP** (SVG, GIF, orice altceva → 400), cel mult 40 de megapixeli.
-  - Procesată cu `sharp`: rotită după orientarea din cameră, **toate metadatele eliminate** (EXIF poate conține locația GPS a telefonului),
-    decupată la 16:9 în două variante WebP: 1600×900 (pagina evenimentului) și 640×360 (lista). Imaginea originală nu se păstrează.
-  - Stocare: implicit pe disc (volumul Docker `uploads`, servit la `/api/uploads/…` cu cache de un an); pe **Cloudinary** dacă
-    `secrets/cloudinary_url.txt` (`CLOUDINARY_URL`, forma `cloudinary://<api_key>:<api_secret>@<cloud_name>`) nu e gol.
-  - Înlocuirea, eliminarea sau ștergerea evenimentului șterg și fișierele vechi. Răspunsurile conțin doar `cover: { small, large }`.
+- **End time** (optional): after the start, at most 14 days. If the organizer moves only the start, the end moves too (the duration
+  stays). "Past" still means "has started" (registration, cancellation and the waitlist close at the start); between start and end the
+  event shows as "In progress" (`status: ONGOING`).
+- **Category** (required): Concert, Conference, Workshop, Sport, Theatre and film, Exhibition, Community, Other
+  (`backend/src/events/categories.ts`, served at `GET /events/categories`). The `?category=` filter combines with pagination and
+  the other filters. Events created before categories existed are "Other".
+- **Format:** physical (location required), online (link required, the place shows as "Online") or hybrid (both). The link must be
+  `https://`. **Only registered participants and the organizer see the link** (event page, confirmation, "you got a seat", reminder and
+  "link changed" emails). The public list, `.ics`, the Google link and people on the waitlist don't get it (`hasOnlineLink` only says it exists).
+- **Cover image** (optional): `POST /events/:id/cover` (the organizer, `multipart/form-data`, field `file`), `DELETE /events/:id/cover`.
+  - Checked on the server: at most **5 MB** (the upload stops past the limit, 413), type determined from the content (the file's
+    signature, not its name): only **JPEG, PNG, WebP** (SVG, GIF, anything else → 400), at most 40 megapixels.
+  - Processed with `sharp`: rotated by the camera orientation, **all metadata removed** (EXIF can contain the phone's GPS location),
+    cropped to 16:9 in two WebP versions: 1600×900 (event page) and 640×360 (list). The original is not kept.
+  - Storage: on disk by default (Docker volume `uploads`, served at `/api/uploads/…`, cached for a year); on **Cloudinary** if
+    `secrets/cloudinary_url.txt` (`CLOUDINARY_URL`, format `cloudinary://<api_key>:<api_secret>@<cloud_name>`) isn't empty.
+  - Replacing or removing the image, or deleting the event, deletes the old files too. Responses contain only `cover: { small, large }`.
 
-## Harta
+## Map
 
-- Locația evenimentelor fizice și hibride se caută pe **Nominatim** (OpenStreetMap), **în fundal**: salvarea nu așteaptă după serviciu.
-  Evenimentul primește `PENDING`, iar `GeocodingWorker` (la 10 secunde) îl rezolvă: `FOUND` (punct pe hartă), `NOT_FOUND` (adresa nu există
-  în OpenStreetMap) sau, după 6 încercări eșuate la 1, 2, 4, 8, 16 minute, `FAILED`. O locație modificată se caută din nou; doar titlul sau data, nu.
-- Respectă [politica Nominatim](https://operations.osmfoundation.org/policies/nominatim/): cel mult **o cerere pe secundă**, un **User-Agent**
-  propriu (`GEOCODER_USER_AGENT`; pune un contact în producție), **fără autocompletare** (doar la salvare) și **cache**: o adresă găsită deja
-  pentru alt eveniment (aceeași, ignorând spațiile și literele mari) nu se mai cere. Căutarea e limitată la România (`GEOCODER_COUNTRY=ro`).
-  `GEOCODER=off` oprește complet cererile (evenimentele nu au hartă). `NOMINATIM_URL` permite un server propriu.
-- API: `map: { lat, lng, osmUrl, directionsUrl }` pentru toată lumea (sau `null`); organizatorul primește și `geocode: { status, label }`,
-  adică adresa găsită, ca să vadă dacă punctul e cel bun. Rezultatul nu schimbă `updatedAt` (calendarele nu văd o „modificare”).
-- Frontend: hartă **Leaflet** cu plăci OpenStreetMap și atribuire, încărcată separat (doar pe pagina unui eveniment cu hartă), întunecată
-  ca restul interfeței; linkuri „Indicații de orientare” (Google Maps) și „Deschide în OpenStreetMap”. Plăcile publice OSM sunt pentru trafic
-  mic; în producție cu mulți vizitatori, un furnizor de plăci prin `VITE_MAP_TILES_URL` și `VITE_MAP_ATTRIBUTION` (`frontend/.env`).
+- The location of physical and hybrid events is looked up on **Nominatim** (OpenStreetMap) **in the background**: saving never
+  waits for the service. The event gets `PENDING`, and `GeocodingWorker` (every 10 seconds) resolves it: `FOUND` (a point on the map),
+  `NOT_FOUND` (the address doesn't exist in OpenStreetMap) or, after 6 failed attempts at 1, 2, 4, 8, 16 minutes, `FAILED`. A changed
+  location is looked up again; a changed title or date is not.
+- Follows the [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/): at most **one request per second**,
+  its own **User-Agent** (`GEOCODER_USER_AGENT`; add a contact in production), **no autocomplete** (only on save) and a **cache**: an
+  address already found for another event (the same, ignoring spaces and capitals) isn't requested again. Searches are limited to
+  Romania (`GEOCODER_COUNTRY=ro`). `GEOCODER=off` stops requests entirely (no maps). `NOMINATIM_URL` allows a self-hosted server.
+- API: `map: { lat, lng, osmUrl, directionsUrl }` for everyone (or `null`); the organizer also gets `geocode: { status, label }`, i.e.
+  the address that was found, to check the point is right. The result doesn't change `updatedAt` (calendars don't see an "update").
+- Frontend: a **Leaflet** map with OpenStreetMap tiles and attribution, loaded separately (only on pages of events with a map), dark in
+  dark mode; "Indicații de orientare" (*directions*, Google Maps) and "Deschide în OpenStreetMap" links. Public OSM tiles are meant for
+  light traffic; in production with many visitors, use a tile provider via `VITE_MAP_TILES_URL` and `VITE_MAP_ATTRIBUTION` (`frontend/.env`).
 
-## Instrumente pentru organizator
+## Organizer tools
 
-- **Export CSV** (buton în „Evenimentele mele”): înscrișii, apoi lista de așteptare în ordine, cu orele în fusul aplicației.
-  Separator `;` și BOM UTF-8, ca Excel cu setări românești să deschidă corect coloanele și diacriticele. O celulă care începe cu
-  `= + - @` primește un apostrof în față (altfel Excel ar executa-o ca formulă: „CSV injection”).
-- **Statistici** pe eveniment: înscriși, locuri libere, în așteptare, ocupare și înscrierile pe zile (bare simple). Înscrierile anulate nu mai
-  există în baza de date, deci seria arată înscrierile actuale după ziua în care s-au făcut.
-- **Arhivă publică** la `/evenimente-trecute`.
+- **CSV export** (button in „Evenimentele mele”, *My events*): registered participants, then the waitlist in order, with times in the
+  app's time zone. `;` separator and a UTF-8 BOM, so Excel with Romanian settings opens columns and diacritics correctly. A cell starting
+  with `= + - @` gets an apostrophe in front (otherwise Excel would run it as a formula: "CSV injection").
+- **Stats** per event: registered, free seats, waiting, occupancy, registrations per day (simple bars), present / no-show, revenue.
+  Cancelled registrations no longer exist in the database, so the series shows current registrations by the day they were made.
+- **Public archive** at `/evenimente-trecute`.
 
-## Bilete și validare la intrare
+## Tickets and check-in
 
-- Fiecare înscriere are un **cod de bilet** de 10 caractere (ex. `7KQ2M-9XH4T`), generat de PostgreSQL (`eventhub_ticket_code()`, 50 de biți
-  aleatori). Participantul îl vede ca **QR** pe pagina evenimentului (generat în browser) și ca text în emailurile de confirmare și memento.
-- QR-ul conține linkul `/check-in/COD`. Organizatorul îl scanează cu **camera telefonului**; pagina validează imediat și arată verdictul
-  (valid / deja validat la ora X / respins). Codul se poate și tasta; literele mici, spațiile, cratimele și `O`/`I`/`L` sunt acceptate.
-- **Fereastra**: de cu 3 ore înainte de început până la 6 ore după sfârșit (fără oră de sfârșit: 12 ore după început).
-- **O singură validare**: două scanări simultane ale aceluiași bilet dau un „valid” și un „deja validat” (un singur `UPDATE … WHERE "checkedInAt" IS NULL`).
-- Biletul altui organizator răspunde ca un cod inexistent. Răspunsul scanării conține doar numele participantului, nu și emailul.
-- În „Evenimentele mele”, lista înscrișilor are bife „prezent” pentru marcarea manuală; CSV-ul are coloana `Prezent`.
+- Every registration has a 10-character **ticket code** (e.g. `7KQ2M-9XH4T`), generated by PostgreSQL (`eventhub_ticket_code()`, 50
+  random bits). The participant sees it as a **QR code** on the event page (generated in the browser) and as text in the confirmation
+  and reminder emails.
+- The QR code contains the link `/check-in/CODE`. The organizer scans it with the **phone camera**; the page validates immediately and
+  shows the verdict (valid / already validated at time X / rejected). The code can also be typed; lowercase, spaces, dashes and
+  `O`/`I`/`L` are accepted.
+- **Window**: from 3 hours before the start until 6 hours after the end (without an end time: 12 hours after the start).
+- **Validated once**: two simultaneous scans of the same ticket give one "valid" and one "already validated" (a single
+  `UPDATE … WHERE "checkedInAt" IS NULL`).
+- Another organizer's ticket answers like an unknown code. The scan response contains only the participant's name, not their email.
+- In „Evenimentele mele”, the attendee list has "present" checkboxes for manual marking; the CSV has a `Prezent` (*present*) column.
 
-## Contul meu (`/cont`)
+## My account (`/cont`)
 
-- Schimbarea numelui; schimbarea parolei (cu parola curentă): celelalte sesiuni se închid, dispozitivul curent rămâne autentificat;
-  „Deconectează-mă de pe toate dispozitivele”.
-- **Ștergerea contului** (cu parola): nu se bazează pe ștergerea în cascadă din baza de date pentru ce contează.
-  Un participant: înscrierile la evenimente viitoare se anulează prin fluxul normal (locul ajunge la primul de pe lista de așteptare,
-  organizatorul e anunțat), iese de pe listele de așteptare. Un organizator: evenimentele viitoare se șterg cu anunț către participanți,
-  cele trecute fără emailuri; imaginile de copertă se șterg. Emailurile încă netrimise către adresa ștearsă se scot din coadă.
+- Change the name; change the password (with the current one): other sessions end, the current device stays signed in;
+  "Sign me out on all devices".
+- **Deleting the account** (with the password) doesn't rely on database cascades for what matters. A participant: registrations for
+  upcoming events are cancelled through the normal flow (the seat goes to the first person on the waitlist, the organizer is notified)
+  and they leave every waitlist. An organizer: upcoming events are deleted with a notice to participants, past ones without emails;
+  cover images are deleted. Unsent emails to the deleted address are removed from the queue.
 
-## Lista de așteptare
+## Waitlist
 
-- Când un eveniment viitor este plin, un participant cu email confirmat poate intra pe **lista de așteptare** și își vede locul („locul 3 din 7”).
-- Când se eliberează un loc (cineva își anulează înscrierea sau organizatorul mărește capacitatea), **primul de pe listă este înscris automat**
-  și primește emailul „Ai primit un loc la «Titlu»”; organizatorul primește „Înscriere nouă … (de pe lista de așteptare)”.
-  Dacă nu mai poate veni, își anulează înscrierea și locul trece la următorul.
-- Ordinea: primul venit, primul servit. Lista nu are limită. Promovarea continuă până la începerea evenimentului.
-- **Invariant:** cât timp cineva așteaptă, evenimentul nu are locuri libere. Toate operațiile pe locuri și pe listă (înscriere, anulare,
-  intrare/ieșire de pe listă, modificarea capacității, ștergere) blochează același rând al evenimentului, deci regula ține și la cereri simultane.
-- Cei de pe listă primesc și emailurile „s-a schimbat evenimentul” / „evenimentul a fost anulat”.
-- Lista este într-un tabel separat (`waitlist_entries`): tot ce numără locurile ocupate rămâne neschimbat.
+- When an upcoming event is full, a participant with a confirmed email can join the **waitlist** and sees their position ("3rd of 7").
+- When a seat frees up (someone cancels, or the organizer raises the capacity), **the first person on the list is registered
+  automatically** and gets the email "You got a seat at «Title»"; the organizer gets "New registration … (from the waitlist)". If they
+  can no longer come, they cancel and the seat moves to the next person.
+- Order: first come, first served. No limit on the list. Promotion continues until the event starts.
+- **Invariant:** while anyone is waiting, the event has no free seats. Every operation on seats and the list (register, cancel,
+  join/leave the list, change capacity, delete) locks the same event row, so the rule holds under simultaneous requests.
+- People on the waitlist also get the "event changed" / "event cancelled" emails.
+- The list lives in a separate table (`waitlist_entries`): everything that counts taken seats stays unchanged.
 
-## Sesiuni
+## Sessions
 
 | | Access token | Refresh token |
 |---|---|---|
-| Ce este | JWT | 32 de octeți aleatori |
-| Durată | **15 minute** | **30 de zile**, reînnoit la fiecare folosire; **maximum 90 de zile** de la autentificare |
-| În browser | **doar în memorie** (dispare la reîncărcarea paginii) | cookie **httpOnly** `eh_refresh` (JavaScript nu îl poate citi), `SameSite=Lax`, trimis doar spre `/api/auth` |
-| Pe server | nu se salvează | doar hash-ul SHA-256, în `refresh_tokens` |
+| What | JWT | 32 random bytes |
+| Lifetime | **15 minutes** | **30 days**, renewed on each use; **at most 90 days** from sign-in |
+| In the browser | **memory only** (gone on page reload) | **httpOnly** cookie `eh_refresh` (JavaScript can't read it), `SameSite=Lax`, sent only to `/api/auth` |
+| On the server | not stored | only its SHA-256 hash, in `refresh_tokens` |
 
-- La încărcarea paginii, frontend-ul cere `POST /auth/refresh`: cu un cookie valid primește un access token nou, deci rămâi autentificat.
-  Când access token-ul expiră, `api.ts` îl reînnoiește automat o dată și repetă cererea. Nimic nu se mai păstrează în `localStorage`.
-- **Rotație:** la fiecare reînnoire, refresh token-ul se înlocuiește cu unul nou. Dacă un token deja înlocuit este folosit din nou după 30 de secunde,
-  înseamnă că cineva are o copie: toată acea autentificare este revocată (pe toate dispozitivele unde ajunsese) și apare un avertisment în log.
-  În primele 30 de secunde, token-ul vechi mai primește doar un access token: acoperă două tab-uri care reînnoiesc în același timp.
-  În browser, tab-urile își așteaptă rândul (Web Locks), iar logout într-un tab îi deconectează și pe celelalte (BroadcastChannel).
-- **Logout** închide sesiunea dispozitivului curent; **logout-all** le închide pe toate (și invalidează imediat access token-urile, prin `tokenVersion`).
-  Resetarea parolei închide de asemenea toate sesiunile. Token-urile expirate sau revocate de peste 7 zile se șterg zilnic, la 03:00.
-- **CSRF:** rutele care folosesc cookie-ul cer antetul `X-EventHub-Client: web`. Un formular de pe alt site nu poate trimite antete proprii,
-  iar CORS acceptă credențiale doar de la originile din `CORS_ORIGIN`.
-- **Frontend-ul și API-ul trebuie să fie pe același site** (ex. `eventhub.ro` + `api.eventhub.ro`, sau API-ul sub `eventhub.ro/api`; `localhost:5100` +
-  `localhost:5200` contează ca același site). Pe două domenii fără legătură, cookie-ul ar fi „third-party” și multe browsere (ex. Safari) îl blochează.
+- On page load, the frontend calls `POST /auth/refresh`: with a valid cookie it gets a new access token, so you stay signed in. When the
+  access token expires, `api.ts` renews it once automatically and repeats the request. Nothing is kept in `localStorage`.
+- **Rotation:** each renewal replaces the refresh token with a new one. If an already-replaced token is used again after 30 seconds,
+  someone has a copy: that whole sign-in is revoked (on every device it reached) and a warning is logged. Within the first 30 seconds,
+  the old token still gets an access token only: this covers two tabs renewing at the same time. In the browser, tabs take turns (Web
+  Locks), and signing out in one tab signs the others out too (BroadcastChannel).
+- **Logout** ends the current device's session; **logout-all** ends all of them (and invalidates access tokens immediately, via
+  `tokenVersion`). Resetting the password also ends every session. Tokens expired or revoked more than 7 days ago are deleted daily at 03:00.
+- **CSRF:** routes that use the cookie require the header `X-EventHub-Client: web`. A form on another site can't send custom headers,
+  and CORS accepts credentials only from the frontend's origins (`CORS_ORIGIN`, or `APP_URL` by default).
+- **The frontend and the API must be on the same site** (e.g. `eventhub.ro` + `api.eventhub.ro`, or the API under `eventhub.ro/api`;
+  `localhost:5100` + `localhost:5200` count as the same site). On two unrelated domains the cookie would be "third-party", and many
+  browsers (e.g. Safari) block it.
 
-| Variabilă | Implicit | Rol |
+| Variable | Default | Role |
 |---|---|---|
-| `COOKIE_SECURE` | `true` în producție | cookie doar prin HTTPS. `docker-compose.yml` îl pune pe `false` (local pe http) |
-| `COOKIE_SAMESITE` | `lax` | `strict` / `none` (`none` forțează Secure) |
-| `COOKIE_DOMAIN` | — | ex. `.eventhub.ro`, dacă frontend-ul și API-ul sunt pe subdomenii diferite |
+| `COOKIE_SECURE` | `true` in production | cookie over HTTPS only. `docker-compose.yml` sets it to `false` (local over http) |
+| `COOKIE_SAMESITE` | `lax` | `strict` / `none` (`none` forces Secure) |
+| `COOKIE_DOMAIN` | — | e.g. `.eventhub.ro`, if the frontend and API are on different subdomains |
 
-## Bilete cu plată (Stripe, opțional)
+## Optional services
 
-Pornește doar cu `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` (în Docker `secrets/stripe_secret_key.txt`, `secrets/stripe_webhook_secret.txt`).
-Fără ele, formularul nu arată prețul și un eveniment nu poate primi preț (400).
+Each one is **off** until its keys are set; without them the application works exactly the same.
 
-- Organizatorul pune un **preț în lei** (minimum 2 lei, cerința Stripe; gol = gratuit). Participantul apasă „Cumpără bilet” și plătește pe
-  pagina **Stripe Checkout** (cardul nu trece prin EventHub).
-- **Locul e rezervat cât timp plătește**: 31 de minute (sesiunea Stripe) + 5 minute pentru webhook-uri întârziate. Locurile rezervate se
-  scad din cele libere peste tot (listă, pagina evenimentului, filtrul „Doar cu locuri”, capacitatea minimă la editare). Trei cumpărători
-  pentru două locuri: doi primesc pagina de plată, al treilea `409 SOLD_OUT`. Cine revine primește aceeași pagină de plată („Continuă plata”).
-- **Webhook** `POST /api/payments/webhook` (evenimentele `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
-  `checkout.session.expired`), cu semnătura HMAC verificată pe **corpul brut** și cel mult 5 minute vechime. Plata confirmată → înscriere cu
-  bilet și emailul obișnuit, **o singură dată** (Stripe poate trimite același webhook de mai multe ori).
-- **Banii se returnează automat**, în fundal (`RefundWorker`, la 30 de secunde, cu cheie de idempotență `refund-<id>` și reîncercări):
-  la anularea înscrierii (înainte de eveniment), la ștergerea evenimentului, când suma nu se potrivește, sau când o plată sosește după ce
-  rezervarea a expirat și locurile s-au ocupat. Participantul primește un email când banii au fost returnați. O returnare refuzată de
-  Stripe rămâne `REFUND_FAILED` (de verificat în panoul Stripe).
-- Evenimentele cu plată **nu au listă de așteptare**; un eveniment cu bilete plătite nu mai poate deveni gratuit (prețul se poate schimba
-  pentru biletele următoare). Statisticile organizatorului arată încasările.
-- Plățile rămân în baza de date și după ștergerea evenimentului sau a contului (evidența banilor).
-- Local: `stripe listen --forward-to localhost:5200/api/payments/webhook` (Stripe CLI) afișează secretul `whsec_…` de pus în `.env`.
+### Paid tickets (Stripe, optional)
 
-## Google, Turnstile, Sentry (opționale)
+Turned on by `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` (in Docker: `secrets/stripe_secret_key.txt`, `secrets/stripe_webhook_secret.txt`).
+Without them the form doesn't show a price and an event can't have one (400).
 
-Toate trei sunt **oprite** până primesc cheile lor; fără ele aplicația merge exact ca înainte.
+- The organizer sets a **price in lei** (at least 2 lei, Stripe's minimum; empty = free). The participant clicks „Cumpără bilet”
+  (*Buy ticket*) and pays on the **Stripe Checkout** page (card details never pass through EventHub).
+- **The seat is held while they pay**: 31 minutes (the Stripe session) + 5 minutes for late webhooks. Held seats are subtracted from
+  free seats everywhere (list, event page, the "only with seats" filter, the minimum capacity when editing). Three buyers for two seats:
+  two get the payment page, the third `409 SOLD_OUT`. Someone who comes back gets the same payment page ("Continuă plata", *continue payment*).
+- **Webhook** `POST /api/payments/webhook` (events `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+  `checkout.session.expired`), with the HMAC signature verified on the **raw body** and at most 5 minutes old. A confirmed payment →
+  registration with a ticket and the usual email, **exactly once** (Stripe may send the same webhook several times).
+- **Refunds are automatic**, in the background (`RefundWorker`, every 30 seconds, idempotency key `refund-<id>`, retries): when a
+  registration is cancelled (before the event), when the event is deleted, when the amount doesn't match, or when a payment arrives
+  after the hold expired and the seats were taken. The participant gets an email when the money is returned. A refund Stripe rejects
+  stays `REFUND_FAILED` (check it in the Stripe dashboard).
+- Paid events **have no waitlist**; an event with paid tickets can't become free (the price can change for future tickets). The
+  organizer's stats show revenue.
+- Payments stay in the database after the event or account is deleted (the money trail).
+- Locally: `stripe listen --forward-to localhost:5200/api/payments/webhook` (Stripe CLI) prints the `whsec_…` secret to put in `.env`.
 
-- **„Continuă cu Google”** (`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, în Docker `secrets/google_client_secret.txt`).
-  În Google Cloud Console: OAuth client de tip *Web application*, *Authorized redirect URI* = `PUBLIC_API_URL` + `/auth/google/callback`
-  (ex. `http://localhost:5200/api/auth/google/callback`).
-  - Fluxul cu cod de autorizare pe server, cu **PKCE**, **state** (anti-CSRF, într-un cookie httpOnly de 10 minute, SameSite=Lax) și **nonce**.
-    Din ID token se verifică emitentul, destinatarul (`aud` = clientul nostru), expirarea, nonce-ul și `email_verified`.
-  - Cont nou → **participant** cu adresa confirmată și **fără parolă** (își poate seta una cu „Ai uitat parola?”). Organizatorii se creează în
-    continuare doar cu codul de invitație; un organizator existent se poate conecta cu Google.
-  - Aceeași adresă ca un cont existent → conturile se leagă. Dacă adresa acelui cont **nu era confirmată**, oricine l-ar fi putut crea cu adresa
-    altcuiva: la legare, **parola lui se șterge și toate sesiunile se închid**, deci rămâne cu acces doar proprietarul adresei.
-  - Un cont fără parolă: autentificarea cu parolă răspunde `401 USE_GOOGLE`, schimbarea parolei / ștergerea contului `400 NO_PASSWORD`.
-- **Cloudflare Turnstile** (`TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`, în Docker `secrets/turnstile_secret_key.txt`) pe
-  înregistrare, autentificare și „Ai uitat parola?”. Widget-ul trimite token-ul în antetul `X-Turnstile-Token`; serverul îl verifică la Cloudflare
-  (`400 CAPTCHA_REQUIRED` / `CAPTCHA_FAILED`). Dacă **Cloudflare nu răspunde**, cererea trece (limitarea cererilor rămâne) și apare un
-  avertisment în log: o pană la ei nu blochează autentificarea. Chei de test: site `1x00000000000000000000AA`, secret `1x0000000000000000000000000000000AA`.
-- **Sentry**: backend `SENTRY_DSN` (doar erorile neprevăzute, 500; 400/401/403/404 nu), frontend `VITE_SENTRY_DSN` (erori de afișare și
-  excepții; fără DSN, SDK-ul nici nu intră în build). **Nimic personal**: fără cookie-uri, antete de autentificare, corpul cererilor, query string
-  (codul OAuth și token-urile din linkurile de resetare / confirmare sunt în adresă) și fără emailul utilizatorului. `SENTRY_TRACES_SAMPLE_RATE` (implicit 0) pentru performanță.
+### Google sign-in, Turnstile, Sentry
 
-Instalare existentă: rulează din nou `setup-secrets` (creează doar fișierele noi, goale dacă apeși Enter), altfel `docker compose` nu pornește.
+- **"Continue with Google"** (`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, in Docker `secrets/google_client_secret.txt`).
+  In Google Cloud Console: an OAuth client of type *Web application*, *Authorized redirect URI* = `PUBLIC_API_URL` + `/auth/google/callback`
+  (e.g. `http://localhost:5200/api/auth/google/callback`).
+  - Server-side authorization code flow with **PKCE**, **state** (anti-CSRF, in a 10-minute httpOnly cookie, SameSite=Lax) and
+    **nonce**. The ID token's issuer, audience (`aud` = our client), expiry, nonce and `email_verified` are checked.
+  - New account → a **participant** with a confirmed address and **no password** (they can set one via "Forgot password?").
+    Organizers are still created only with the invite code; an existing organizer can sign in with Google.
+  - Same address as an existing account → the accounts are linked. If that account's address **wasn't confirmed**, anyone could have
+    created it with someone else's address: on linking, **its password is wiped and every session ends**, so only the address owner
+    keeps access.
+  - A passwordless account: password sign-in answers `401 USE_GOOGLE`, changing the password / deleting the account `400 NO_PASSWORD`.
+- **Cloudflare Turnstile** (`TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`, in Docker `secrets/turnstile_secret_key.txt`) on sign-up,
+  sign-in and "Forgot password?". The widget sends its token in the `X-Turnstile-Token` header; the server checks it with Cloudflare
+  (`400 CAPTCHA_REQUIRED` / `CAPTCHA_FAILED`). If **Cloudflare doesn't answer**, the request passes (rate limiting still applies) with a
+  warning in the log: an outage on their side doesn't lock users out. Test keys: site `1x00000000000000000000AA`, secret
+  `1x0000000000000000000000000000000AA`.
+- **Sentry**: backend `SENTRY_DSN` (unexpected errors only, 500; not 400/401/403/404), frontend `VITE_SENTRY_DSN` (rendering errors and
+  exceptions; without a DSN the SDK isn't even in the build). **Nothing personal**: no cookies, auth headers, request bodies or query
+  strings (the OAuth code and the tokens in reset / confirmation links are in URLs), and no user email. `SENTRY_TRACES_SAMPLE_RATE`
+  (default 0) for performance tracing.
 
-## Cont: confirmarea emailului, resetarea parolei
+## Account: email confirmation, password reset
 
-- **Confirmarea adresei.** La înregistrare se trimite un link de confirmare (valabil 24 de ore). Până la confirmare,
-  utilizatorul se poate autentifica și poate vedea evenimentele, dar **nu se poate înscrie** (participant) și **nu poate crea evenimente** (organizator):
-  API-ul răspunde 403 cu `code: "EMAIL_NOT_VERIFIED"`, iar interfața arată o bandă cu „Retrimite emailul de confirmare”.
-  Astfel emailurile despre evenimente ajung doar la adrese confirmate. Conturile create înainte de această funcție sunt considerate confirmate.
-- **Resetarea parolei.** „Ai uitat parola?” pe pagina de autentificare → link pe email, valabil **30 de minute**, o singură dată;
-  o cerere nouă anulează linkul anterior. După resetare se trimite emailul „Parola ta a fost schimbată”.
-- **Linkurile sunt sigure în baza de date:** în `auth_tokens` se păstrează doar hash-ul SHA-256 al token-ului, iar conținutul emailurilor
-  cu link (`email_outbox.sensitive`) se șterge imediat după trimitere.
-- **Access token-ul și contul curent.** JWT-ul conține `tv` (versiunea sesiunilor contului). La fiecare cerere autentificată, API-ul citește contul (o interogare pe cheia primară):
-  după o resetare de parolă sau logout-all, access token-urile vechi primesc 401, la fel cele ale unui cont șters. Rolul și starea emailului vin din baza de date, nu din token.
-- **Local, fără cheie Resend:** linkurile apar în logul API-ului (nivel `debug`, sub `LogMailer`): de acolo se pot copia.
+- **Confirming the address.** Sign-up sends a confirmation link (valid 24 hours). Until confirmed, the user can sign in and see events,
+  but **can't register** (participant) and **can't create events** (organizer): the API answers 403 with `code: "EMAIL_NOT_VERIFIED"`,
+  and the interface shows a banner with „Retrimite emailul de confirmare” (*resend the confirmation email*). This way event emails
+  only go to confirmed addresses. Accounts created before this feature count as confirmed.
+- **Password reset.** "Forgot password?" on the sign-in page → a link by email, valid **30 minutes**, single use; a new request cancels
+  the previous link. After the reset, the email "Your password was changed" is sent.
+- **Links are safe in the database:** `auth_tokens` keeps only the SHA-256 hash of each token, and the content of emails containing a
+  link (`email_outbox.sensitive`) is deleted right after sending.
+- **The access token and the current account.** The JWT contains `tv` (the account's session version). On every authenticated request
+  the API reads the account (a primary-key lookup): after a password reset or logout-all, old access tokens get 401, as do those of a
+  deleted account. The role and email status come from the database, not from the token.
+- **Locally, without a Resend key:** links appear in the API log (`debug` level, under `LogMailer`); copy them from there (see step 6
+  of [Getting started](#getting-started-step-by-step)).
 
-## Migrări
+## Migrations
 
-Schema bazei de date se schimbă **doar prin migrări** (`backend/src/database/migrations`), niciodată automat (`synchronize` este oprit).
-Setările conexiunii sunt într-un singur loc: `backend/src/database/data-source.ts`, folosit și de aplicație, și de CLI-ul TypeORM.
+The database schema changes **only through migrations** (`backend/src/database/migrations`), never automatically (`synchronize` is off).
+Connection settings are in one place, `backend/src/database/data-source.ts`, used by both the application and the TypeORM CLI.
 
-- La pornire, API-ul rulează migrările noi (`DB_MIGRATIONS_RUN`, implicit `true`).
-- Prima migrare (`InitialSchema`) recunoaște o bază creată înainte de migrări: nu creează nimic, doar se marchează ca aplicată. Datele rămân.
+- On startup, the API runs new migrations (`DB_MIGRATIONS_RUN`, default `true`).
+- The first migration (`InitialSchema`) recognises a database created before migrations existed: it creates nothing, it only marks
+  itself as applied. The data stays.
 
-**Cum schimbi schema** (din `backend/`, cu baza pornită):
+**Changing the schema** (from `backend/`, with the database running):
 
 ```bash
-# 1. modifici entitatea (ex. events/event.entity.ts)
-npm run migration:generate -- src/database/migrations/NumeSchimbare   # 2. generează migrarea
-# 3. citești fișierul generat, apoi îl adaugi în git
-npm run migration:run      # 4. aplică (sau repornește API-ul)
+# 1. change the entity (e.g. events/event.entity.ts)
+npm run migration:generate -- src/database/migrations/ChangeName   # 2. generate the migration
+# 3. read the generated file, then add it to git
+npm run migration:run      # 4. apply it (or restart the API)
 ```
 
-| Comandă | Ce face |
+| Command | What it does |
 |---|---|
-| `npm run migration:show` | lista migrărilor și care sunt aplicate (`[X]`) |
-| `npm run migration:check` | eșuează dacă entitățile și migrările diferă (o migrare uitată) |
-| `npm run migration:revert` | anulează ultima migrare (atenție: `InitialSchema` șterge toate tabelele) |
-| `npm run migration:run:prod` | rulează migrările compilate, în imaginea Docker |
+| `npm run migration:show` | lists migrations and which are applied (`[X]`) |
+| `npm run migration:check` | fails if entities and migrations differ (a forgotten migration) |
+| `npm run migration:revert` | undoes the last migration (careful: `InitialSchema` drops every table) |
+| `npm run migration:run:prod` | runs the compiled migrations, inside the Docker image |
 
-Cu mai multe instanțe ale API-ului pornite simultan: setează `DB_MIGRATIONS_RUN=false` și rulează `migration:run:prod` o singură dată, ca pas separat de deploy.
+With several API instances running at once: set `DB_MIGRATIONS_RUN=false` and run `migration:run:prod` once, as a separate deploy step.
 
 ## Email
 
-Emailurile se trimit prin [Resend](https://resend.com).
+Emails are sent through [Resend](https://resend.com).
 
-| Când | Cine primește |
+| When | Who receives it |
 |---|---|
-| înscriere | participantul (confirmare) și organizatorul (cine s-a înscris, locuri ocupate) |
-| anulare de către participant | participantul (confirmare) și organizatorul |
-| se schimbă **titlul, data/ora sau locația** | fiecare participant înscris (vechi → nou) |
-| evenimentul este șters | fiecare participant înscris |
+| registration | the participant (confirmation, with the ticket) and the organizer (who registered, seats taken) |
+| cancellation by the participant | the participant (confirmation) and the organizer |
+| **title, date/time or location** changes | every registered participant (old → new) |
+| the event is deleted | every registered participant |
+| the day before | registered participants (reminder) |
 
-Schimbarea doar a capacității sau a descrierii nu trimite nimic. Fiecare persoană primește emailul ei (adresele nu ajung la ceilalți).
+Changing only the capacity or the description sends nothing. Everyone gets their own email (addresses aren't shared).
 
-**Cum funcționează:** acțiunea (înscriere, modificare, ștergere) scrie emailurile în tabelul `email_outbox`, **în aceeași tranzacție**.
-Dacă acțiunea eșuează, emailurile dispar odată cu ea. Un job din API (`OutboxWorker`, la fiecare 15 secunde) le trimite în loturi de până la 100
-(o singură cerere Resend). La eroare (Resend indisponibil, limită depășită) se reîncearcă după 1, 2, 4, 8 minute; după 5 încercări emailul devine `FAILED`,
-cu eroarea salvată. Două instanțe ale API-ului nu trimit niciodată același email (`FOR UPDATE SKIP LOCKED`).
+**How it works:** the action (registration, change, deletion) writes the emails to the `email_outbox` table **in the same transaction**.
+If the action fails, the emails disappear with it. A job in the API (`OutboxWorker`, every 15 seconds) sends them in batches of up to
+100 (one Resend request). On error (Resend unavailable, limit exceeded) it retries after 1, 2, 4, 8 minutes; after 5 attempts the email
+becomes `FAILED`, with the error saved. Two API instances never send the same email (`FOR UPDATE SKIP LOCKED`).
 
-**Fără cheie Resend** (implicit): totul funcționează, dar emailurile sunt doar scrise în log (`[nu se trimite] către …`). Nimic nu pleacă din greșeală.
+**Without a Resend key** (the default): everything works, but emails are only written to the log (`[nu se trimite] către …`, *not
+sent, to …*). Nothing leaves by accident.
 
-**Cu emailuri reale:**
+**With real emails:**
 
-1. Creează un cont gratuit pe resend.com și o cheie API.
-2. Pune cheia în `secrets/resend_api_key.txt` (Docker) sau `RESEND_API_KEY` în `backend/.env`.
-3. Fără un domeniu propriu, expeditorul `onboarding@resend.dev` livrează **doar către adresa contului tău Resend**; ceilalți destinatari primesc eroare 403.
-   Pentru participanți reali: verifică un domeniu în Resend și setează `MAIL_FROM` (ex. `EventHub <noreply@domeniul-tau.ro>`).
+1. Create a free account at resend.com and an API key.
+2. Put the key in `secrets/resend_api_key.txt` (Docker) or `RESEND_API_KEY` in `backend/.env`, then restart the API
+   (`docker compose up -d --force-recreate backend`).
+3. Without your own domain, the sender `onboarding@resend.dev` delivers **only to your Resend account's address**; other recipients
+   get a 403 error. For real participants: verify a domain in Resend and set `MAIL_FROM` (e.g. `EventHub <noreply@your-domain.ro>`).
 
-| Variabilă | Implicit | Rol |
+| Variable | Default | Role |
 |---|---|---|
-| `RESEND_API_KEY` / `secrets/resend_api_key.txt` | gol | cheia Resend; gol = doar log |
-| `MAIL_FROM` | `EventHub <onboarding@resend.dev>` | expeditorul |
-| `APP_URL` | `http://localhost:5100` | adresa frontend-ului, pentru linkurile din emailuri |
-| `APP_TIMEZONE` | `Europe/Bucharest` | fusul orar al datelor din emailuri (containerul API rulează în UTC) |
-| `PUBLIC_API_URL` | `http://localhost:5200/api` | adresa publică a API-ului, pentru linkurile `.ics` din emailuri |
+| `RESEND_API_KEY` / `secrets/resend_api_key.txt` | empty | the Resend key; empty = log only |
+| `MAIL_FROM` | `EventHub <onboarding@resend.dev>` | the sender |
+| `APP_URL` | `http://localhost:5100` | the frontend address, for links in emails |
+| `APP_TIMEZONE` | `Europe/Bucharest` | time zone of dates in emails (the API container runs in UTC) |
+| `PUBLIC_API_URL` | `http://localhost:5200/api` | the public API address, for `.ics` links in emails |
 
-Planul gratuit Resend: 100 de emailuri pe zi și 3.000 pe lună. Dacă limita zilnică este atinsă (ex. ștergerea unui eveniment mare), restul emailurilor așteaptă în coadă
-și se reîncearcă; după 5 încercări (~15 minute) devin `FAILED`. Pentru volume mai mari este nevoie de un plan plătit.
+Resend's free plan: 100 emails a day and 3,000 a month. If the daily limit is reached (e.g. deleting a large event), the remaining
+emails wait in the queue and are retried; after 5 attempts (~15 minutes) they become `FAILED`. Higher volumes need a paid plan.
 
-## Securitate
+## Security
 
-- **Limitarea cererilor** (`@nestjs/throttler`, global). Limitele sunt într-un singur loc: `backend/src/common/security.ts`.
-  - `POST /auth/login`: 5 încercări/minut per IP + email (ghicirea parolei unui cont) și 30/minut per IP (multe conturi). Utilizatorii din aceeași rețea nu se blochează între ei.
-  - `POST /auth/register`: 10/oră per IP. Celelalte rute: 120/minut per IP. `GET /health` nu este limitat.
-  - Peste limită: `429` cu `{ message: "Prea multe încercări..." }` și antetul `Retry-After`.
-  - Contoarele sunt în memorie: se resetează la repornire și nu sunt partajate între mai multe instanțe (pentru asta: stocare Redis).
-  - În spatele unui reverse proxy setează `TRUST_PROXY` (ex. `1`), altfel toți utilizatorii ar avea IP-ul proxy-ului.
-- **Antete de securitate** cu `helmet` (fără `X-Powered-By`, cu HSTS, `nosniff`, `X-Frame-Options` etc.). Content-Security-Policy este oprit doar cât timp Swagger este pornit.
-- **Swagger** (`/api/docs`) doar când `SWAGGER_ENABLED=true` sau în afara producției.
+- **Rate limiting** (`@nestjs/throttler`, global). The limits are in one place: `backend/src/common/security.ts`.
+  - `POST /auth/login`: 5 attempts/minute per IP + email (guessing one account's password) and 30/minute per IP (many accounts).
+    Users on the same network don't block each other.
+  - `POST /auth/register`: 10/hour per IP. Other routes: 120/minute per IP. `GET /health` isn't limited.
+  - Over the limit: `429` with `{ message: "Prea multe încercări..." }` and a `Retry-After` header.
+  - Counters are in memory: they reset on restart and aren't shared between instances (for that: Redis storage).
+  - Behind a reverse proxy, set `TRUST_PROXY` (e.g. `1`), otherwise every user would have the proxy's IP.
+- **Security headers** with `helmet` (no `X-Powered-By`, with HSTS, `nosniff`, `X-Frame-Options`, etc.). The API's
+  Content-Security-Policy is off only while Swagger is on. The frontend's CSP is set by nginx (see [Ports](#ports)).
+- **Swagger** (`/api/docs`) only when `SWAGGER_ENABLED=true` or outside production.
 
-## Reguli de business (în backend)
+## Business rules (in the backend)
 
-- Fără înscrieri duplicate: verificare în serviciu + constrângere `UNIQUE(userId, eventId)` în PostgreSQL.
-- Capacitatea nu se depășește: înscrierea rulează într-o tranzacție cu `pessimistic_write` pe rândul evenimentului, deci cererile simultane nu pot trece de limită.
-- Nu există înscriere la evenimente trecute; evenimentele noi trebuie să fie în viitor.
-- Înscrierea nu se mai poate anula după începerea evenimentului (400). Anularea rulează în aceeași tranzacție cu lock pe eveniment ca înscrierea.
-- Doar organizatorul proprietar poate edita sau șterge (guard de rol + verificare de proprietate → 403).
-- Capacitatea unui eveniment nu poate fi redusă sub numărul de înscriși. Modificarea rulează într-o tranzacție cu același lock, deci o înscriere simultană nu poate depăși noua capacitate.
-- Înscrierea la evenimente, intrarea pe lista de așteptare și crearea de evenimente cer o adresă de email confirmată (403 `EMAIL_NOT_VERIFIED`).
-- Un loc eliberat la un eveniment cu listă de așteptare este dat imediat primului de pe listă; un eveniment nu are locuri libere cât timp cineva așteaptă.
-- Validare cu `class-validator` (`whitelist` + `forbidNonWhitelisted`), parole hash-uite cu bcrypt.
+- No duplicate registrations: a check in the service + a `UNIQUE(userId, eventId)` constraint in PostgreSQL.
+- Capacity is never exceeded: registration runs in a transaction with `pessimistic_write` on the event row, so simultaneous requests
+  can't go over the limit.
+- No registration for past events; new events must be in the future.
+- A registration can't be cancelled after the event starts (400). Cancellation runs in the same transaction, with the same lock on the
+  event, as registration.
+- Only the owning organizer can edit or delete (role guard + ownership check → 403).
+- An event's capacity can't go below the number registered. The change runs in a transaction with the same lock, so a simultaneous
+  registration can't exceed the new capacity.
+- Registering, joining a waitlist and creating events require a confirmed email address (403 `EMAIL_NOT_VERIFIED`).
+- A seat freed at an event with a waitlist goes immediately to the first person on it; an event has no free seats while anyone is waiting.
+- Validation with `class-validator` (`whitelist` + `forbidNonWhitelisted`), passwords hashed with bcrypt.
 
-## Design („Noir Glass”)
+## Design ("Noir Glass")
 
-Minimalist, aproape negru, **un singur roșu** (`--red`) folosit cu zgârcenie: butonul principal, focus, pagina curentă, punctul de
-„locuri libere”, luna din dată. **Sticlă mată** doar pentru ce plutește (antet, panouri, formulare, bilet, notificări, verdictul de la intrare),
-peste o lumină roșie difuză și o granulație fină; listele rămân plate, cu linii subțiri. Totul într-un singur fișier,
-`frontend/src/styles.css`, cu variabile la început. Fără `backdrop-filter` sau cu „transparență redusă” cerută de sistem, sticla devine
-o suprafață opacă; cu „mișcare redusă”, nicio animație.
+Minimalist and near-black, with **a single red** (`--red`) used sparingly: the primary button, focus, the current page, the "seats
+available" dot, the month in the date. **Frosted glass** only on what floats (header, panels, forms, ticket, notifications, the check-in
+verdict), over a soft red glow and fine grain; lists stay flat with thin lines. Everything is in one file, `frontend/src/styles.css`,
+with variables at the top. Without `backdrop-filter`, or when the system asks for reduced transparency, glass becomes an opaque
+surface; with reduced motion, there's no animation.
 
-**Tema deschisă:** butonul cu soare / lună din antet comută între cele două teme; alegerea se ține minte în browser, iar la prima
-vizită se folosește tema sistemului. Aceleași roluri de culoare, alte valori (`:root[data-theme='light']` în `styles.css`): alb cald,
-același roșu un pic mai adânc pentru contrast, sticlă albă mată, hartă cu plăcile OSM normale. Tema se aplică înainte de prima
-afișare de `public/theme-init.js` (fișier separat: CSP-ul nu permite scripturi inline), deci pagina nu „clipește” în tema greșită.
+**Light theme:** the sun / moon button in the header switches between the two themes; the choice is remembered in the browser, and on
+the first visit the system theme is used. Same colour roles, different values (`:root[data-theme='light']` in `styles.css`): warm
+white, the same red a little deeper for contrast, white frosted glass, normal OSM map tiles. The theme is applied before the first paint
+by `public/theme-init.js` (a separate file: the CSP forbids inline scripts), so the page never flashes in the wrong theme.
 
-| Evenimente | Eveniment | Autentificare | Telefon |
-|---|---|---|---|
-| ![Lista de evenimente](docs/design/evenimente.webp) | ![Pagina unui eveniment cu plată și hartă](docs/design/eveniment.webp) | ![Formularul de autentificare](docs/design/autentificare.webp) | ![Pagina evenimentului pe telefon](docs/design/telefon-eveniment.webp) |
-
-## Structura
+## Structure
 
 ```
-backend/src/{auth,users,events,registrations,common}   # module NestJS cu responsabilități separate
-backend/src/database/{data-source.ts,migrations/}      # setările bazei de date și migrările
-backend/src/mail/                                      # emailuri: șabloane, coadă (outbox), trimitere (Resend / log)
-frontend/src/{pages,auth.tsx,api.ts,ui.tsx}     # pagini, context de autentificare, client HTTP
+backend/src/{auth,users,events,registrations,waitlist,payments,geo,…}   # NestJS modules with separate responsibilities
+backend/src/common/                                                     # shared: routes, URLs/ports, security, validation, CSV
+backend/src/database/{data-source.ts,migrations/}                       # database settings and migrations
+backend/src/mail/                                                       # emails: templates, queue (outbox), sending (Resend / log)
+frontend/src/{pages,auth.tsx,api.ts,ui.tsx,styles.css}                  # pages, auth context, HTTP client, design
+docker-compose.yml, setup-secrets.{ps1,sh}                              # running everything locally
+IMPROVEMENTS.md                                                         # roadmap, decisions and test results for every feature
 ```
-
-## Bonus incluse
-
-Sortare după dată, filtrare după locuri libere, dashboard organizator cu număr de înscrieri, teste automate, Docker Compose.
