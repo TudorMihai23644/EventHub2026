@@ -2,6 +2,11 @@
 # Creează fișierele secrete din ./secrets (nu suprascrie ce există deja).
 set -e
 mkdir -p secrets
+# Dacă `docker compose up` a pornit înainte de acest script, Docker a creat câte un FOLDER gol în locul fiecărui fișier lipsă
+# (API-ul cade apoi cu EISDIR). Folderele goale se șterg (rmdir refuză unul cu conținut) și fișierele se creează normal.
+for d in secrets/*.txt; do
+  if [ -d "$d" ]; then rmdir "$d" && echo "Folder gol creat de Docker în locul fișierului: $d (șters)"; fi
+done
 gen() { head -c 48 /dev/urandom | base64 | tr -d '\n=+/' | cut -c1-48; }
 [ -f secrets/db_password.txt ] || gen > secrets/db_password.txt
 [ -f secrets/jwt_secret.txt ] || gen > secrets/jwt_secret.txt

@@ -1,6 +1,13 @@
 # Creeaza fisierele secrete din .\secrets (nu suprascrie ce exista deja).
 $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory -Force -Path secrets | Out-Null
+# Daca `docker compose up` a pornit inaintea acestui script, Docker a creat cate un FOLDER gol in locul fiecarui fisier lipsa
+# (API-ul cade apoi cu EISDIR). Folderele goale se sterg si fisierele se creeaza normal; unul cu continut opreste scriptul.
+Get-ChildItem secrets -Directory -Filter '*.txt' | ForEach-Object {
+  if (Get-ChildItem $_.FullName -Force) { throw "secrets\$($_.Name) este un folder cu continut, nu un fisier. Verifica-l si sterge-l manual." }
+  Remove-Item $_.FullName
+  Write-Host "Folder gol creat de Docker in locul fisierului: secrets\$($_.Name) (sters, se creeaza fisierul)"
+}
 
 function New-Secret {
   $bytes = New-Object byte[] 48
