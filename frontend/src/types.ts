@@ -57,6 +57,15 @@ export interface EventItem {
   map: { lat: number; lng: number; osmUrl: string; directionsUrl: string } | null;
   /** Doar pentru organizator: starea căutării adresei pe hartă și adresa găsită. */
   geocode: { status: 'PENDING' | 'FOUND' | 'NOT_FOUND' | 'FAILED' | 'SKIPPED'; label: string | null } | null;
+  /** Prețul în bani (4990 = 49,90 lei); null = gratuit. */
+  priceCents: number | null;
+  price: { cents: number; currency: string; label: string } | null;
+  /** Participantul poate cumpăra un bilet (eveniment cu plată, locuri, email confirmat). */
+  canBuy: boolean;
+  /** O plată începută și neterminată: același link Stripe, valabil până la `expiresAt`. */
+  checkout: { url: string; expiresAt: string } | null;
+  /** Eveniment cu plată, dar plățile sunt oprite pe server. */
+  salesClosed: boolean;
   /** Biletul participantului înscris (codul din QR); null pentru ceilalți. */
   ticket: { code: string; display: string; checkedInAt: string | null } | null;
   /** Doar pentru organizatorul evenimentului: fereastra de validare a biletelor. */
@@ -94,7 +103,12 @@ export interface WaitlistPerson {
 export type EventFormat = 'PHYSICAL' | 'ONLINE' | 'HYBRID';
 export interface Option<T extends string = string> { value: T; label: string }
 /** GET /events/categories */
-export interface EventOptions { categories: Option[]; formats: Option<EventFormat>[] }
+export interface EventOptions {
+  categories: Option[];
+  formats: Option<EventFormat>[];
+  /** Stripe configurat pe server: formularul arată câmpul de preț. */
+  payments?: { enabled: boolean; currency: string; minCents: number };
+}
 
 // Listele paginate din API (ex. GET /events).
 export interface Paginated<T> {
@@ -130,6 +144,8 @@ export interface EventStats {
   availableSeats: number;
   occupancyPercent: number;
   checkedIn: number;
+  /** Încasări (doar pentru evenimente cu plată). */
+  revenue: { cents: number; label: string; ticketsSold: number; refunds: number } | null;
   /** null înainte de începerea evenimentului. */
   noShow: number | null;
   noShowPercent: number | null;

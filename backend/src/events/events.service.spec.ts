@@ -15,6 +15,8 @@ function setup(event: Partial<Event> | null, taken = 0) {
   const manager: any = {
     findOne: jest.fn(async () => (event ? { ...event } : null)),
     count: jest.fn(async () => taken),
+    // SQL direct (payments/seats.ts): 0 locuri ținute de plăți în curs, 0 plăți de returnat
+    query: jest.fn(async () => [{ n: 0 }]),
     save: jest.fn(async (e: object) => e),
     remove: jest.fn(async () => calls.push('remove')),
   };

@@ -2,6 +2,7 @@ import { MailConfig } from './mail.config';
 import { googleCalendarUrl, icsPath } from '../events/calendar';
 import { placeLabel } from '../events/categories';
 import { formatTicketCode } from '../registrations/ticket-code';
+import { priceLabel } from '../payments/stripe';
 
 // Conținutul emailurilor: funcții pure, fără bază de date, ușor de testat.
 // Tot ce scrie un utilizator (titlu, locație, nume) trece prin escapeHtml.
@@ -157,10 +158,14 @@ export function eventReminder(cfg: Cfg, d: { name: string; event: EventInfo; has
   });
 }
 
-export function registrationCancelled(cfg: Cfg, d: { name: string; event: EventInfo }): EmailContent {
+export function registrationCancelled(cfg: Cfg, d: { name: string; event: EventInfo; refunded?: boolean }): EmailContent {
   return render(cfg, `Înscrierea la „${d.event.title}” a fost anulată`, {
     heading: 'Înscriere anulată',
-    lines: [`Bună, ${d.name}! Ți-ai anulat înscrierea la „${d.event.title}”.`, 'Dacă te răzgândești și mai sunt locuri, te poți înscrie din nou.'],
+    lines: [
+      `Bună, ${d.name}! Ți-ai anulat înscrierea la „${d.event.title}”.`,
+      ...(d.refunded ? ['Banii pentru bilet îți vor fi returnați pe card; îți scriem când returnarea e făcută.'] : []),
+      'Dacă te răzgândești și mai sunt locuri, te poți înscrie din nou.',
+    ],
     facts: eventFacts(cfg, d.event),
     button: { label: 'Vezi evenimentul', url: eventUrl(cfg, d.event.id) },
   });
@@ -305,5 +310,16 @@ export function organizerCancellation(cfg: Cfg, d: OrganizerData): EmailContent 
     lines: [`Bună, ${d.organizerName}! ${d.participantName} și-a anulat înscrierea la „${d.event.title}”.`],
     facts: [['Locuri ocupate', `${d.taken} din ${d.capacity}`], ['Când', formatDate(d.event.startsAt, cfg.timeZone)]],
     button: { label: 'Deschide panoul', url: `${cfg.appUrl}/organizator` },
+  });
+}
+
+export function paymentRefunded(cfg: Cfg, d: { name: string; eventTitle: string; amountCents: number }): EmailContent {
+  return render(cfg, `Ți-am returnat banii pentru „${d.eventTitle}”`, {
+    heading: 'Plată returnată',
+    lines: [
+      `${d.name ? `Bună, ${d.name}! ` : ''}Am returnat ${priceLabel(d.amountCents)} pentru biletul la „${d.eventTitle}”.`,
+      'Suma apare în contul cardului în câteva zile lucrătoare, în funcție de bancă.',
+    ],
+    button: { label: 'Vezi evenimentele', url: cfg.appUrl },
   });
 }

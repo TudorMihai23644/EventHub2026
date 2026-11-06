@@ -170,6 +170,7 @@ function StatsPanel({ s }: { s: EventStats }) {
         <div><strong>{s.availableSeats}</strong><span>locuri libere</span></div>
         <div><strong>{s.waiting}</strong><span>în așteptare</span></div>
         <div><strong>{s.occupancyPercent}%</strong><span>ocupare</span></div>
+        {s.revenue && <div><strong>{s.revenue.label}</strong><span>încasări ({s.revenue.ticketsSold} bilete{s.revenue.refunds ? `, ${s.revenue.refunds} returnate` : ''})</span></div>}
         {s.noShow !== null && <div><strong>{s.checkedIn}</strong><span>prezenți</span></div>}
         {s.noShow !== null && <div><strong>{s.noShowPercent ?? 0}%</strong><span>absenți ({s.noShow})</span></div>}
       </div>

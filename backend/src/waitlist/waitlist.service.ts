@@ -18,6 +18,7 @@ export class WaitlistService {
     return this.dataSource.transaction(async (m) => {
       const event = await lockEvent(m, eventId);
       if (isPast(event)) throw new BadRequestException('Evenimentul a avut deja loc.');
+      if (event.priceCents) throw new ConflictException('Evenimentele cu plată nu au listă de așteptare.');
       if (await m.exists(Registration, { where: { userId, eventId } })) throw new ConflictException('Ești deja înscris la acest eveniment.');
       if (await m.exists(WaitlistEntry, { where: { userId, eventId } })) throw new ConflictException('Ești deja pe lista de așteptare.');
       const taken = await m.count(Registration, { where: { eventId } });
@@ -45,7 +46,8 @@ export class WaitlistService {
    * După începerea evenimentului nu se mai promovează nimeni.
    */
   async promote(m: EntityManager, event: Event): Promise<number> {
-    if (isPast(event)) return 0;
+    // eveniment cu plată: un loc liber nu se dă gratuit cuiva de pe listă (lista rămâne din perioada în care era gratuit)
+    if (isPast(event) || event.priceCents) return 0;
     let taken = await m.count(Registration, { where: { eventId: event.id } });
     let promoted = 0;
     while (taken < event.capacity) {

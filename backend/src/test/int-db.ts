@@ -45,5 +45,5 @@ export async function openTestDb(): Promise<DataSource> {
 }
 
 export async function clearTables(ds: DataSource) {
-  await ds.query('TRUNCATE email_outbox, waitlist_entries, registrations, events, users CASCADE');
+  await ds.query('TRUNCATE email_outbox, payments, waitlist_entries, registrations, events, users CASCADE');
 }

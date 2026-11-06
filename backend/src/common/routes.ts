@@ -25,9 +25,11 @@ export const ROUTES = {
     attendeesCsv: ':id/registrations.csv',
     stats: ':id/stats',
     attendance: ':id/attendance/:registrationId',
+    checkout: ':id/checkout',
   },
   registrations: { base: 'registrations', mine: 'me' },
   waitlist: { base: 'waitlist', mine: 'me' },
   account: { base: 'account', password: 'password' },
   checkin: { scan: 'check-in' },
+  payments: { webhook: 'payments/webhook' },
 } as const;

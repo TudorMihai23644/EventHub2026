@@ -94,6 +94,8 @@ Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt def
 | GET | `/events/:id/registrations.csv` | organizator proprietar | CSV (Excel): înscrișii, apoi lista de așteptare |
 | GET | `/events/:id/stats` | organizator proprietar | ocupare, lista de așteptare, înscrieri pe zile, prezenți și absenți (`noShow` e null înainte de început) |
 | POST | `/check-in` | organizator | `{ code }` → 200 `{ result: CHECKED_IN \| ALREADY_CHECKED_IN, checkedInAt, participant: { name }, event }`; 404 cod necunoscut sau al altui organizator; 400 cod invalid sau în afara ferestrei |
+| POST | `/events/:id/checkout` | participant cu email confirmat | eveniment cu plată → `{ url, expiresAt }` (pagina Stripe; locul e rezervat); 409 `SOLD_OUT` / deja înscris; 503 plăți oprite sau Stripe indisponibil |
+| POST | `/payments/webhook` | Stripe (semnătură) | `Stripe-Signature` verificată pe corpul brut; 400 semnătură greșită |
 | PUT | `/events/:id/attendance/:registrationId` | organizator proprietar | `{ present: boolean }` → `{ id, checkedInAt }`; de la deschiderea ferestrei, și după eveniment (corecturi) |
 | PATCH | `/account` | autentificat | `{ name }` |
 | POST | `/account/password` | autentificat + antet `X-EventHub-Client` | `{ currentPassword, newPassword }` → sesiune nouă pentru acest dispozitiv, celelalte închise |
@@ -240,6 +242,28 @@ sunt publice, dar adaptează răspunsul dacă cererea are token.
 | `COOKIE_SECURE` | `true` în producție | cookie doar prin HTTPS. `docker-compose.yml` îl pune pe `false` (local pe http) |
 | `COOKIE_SAMESITE` | `lax` | `strict` / `none` (`none` forțează Secure) |
 | `COOKIE_DOMAIN` | — | ex. `.eventhub.ro`, dacă frontend-ul și API-ul sunt pe subdomenii diferite |
+
+## Bilete cu plată (Stripe, opțional)
+
+Pornește doar cu `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` (în Docker `secrets/stripe_secret_key.txt`, `secrets/stripe_webhook_secret.txt`).
+Fără ele, formularul nu arată prețul și un eveniment nu poate primi preț (400).
+
+- Organizatorul pune un **preț în lei** (minimum 2 lei, cerința Stripe; gol = gratuit). Participantul apasă „Cumpără bilet” și plătește pe
+  pagina **Stripe Checkout** (cardul nu trece prin EventHub).
+- **Locul e rezervat cât timp plătește**: 31 de minute (sesiunea Stripe) + 5 minute pentru webhook-uri întârziate. Locurile rezervate se
+  scad din cele libere peste tot (listă, pagina evenimentului, filtrul „Doar cu locuri”, capacitatea minimă la editare). Trei cumpărători
+  pentru două locuri: doi primesc pagina de plată, al treilea `409 SOLD_OUT`. Cine revine primește aceeași pagină de plată („Continuă plata”).
+- **Webhook** `POST /api/payments/webhook` (evenimentele `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+  `checkout.session.expired`), cu semnătura HMAC verificată pe **corpul brut** și cel mult 5 minute vechime. Plata confirmată → înscriere cu
+  bilet și emailul obișnuit, **o singură dată** (Stripe poate trimite același webhook de mai multe ori).
+- **Banii se returnează automat**, în fundal (`RefundWorker`, la 30 de secunde, cu cheie de idempotență `refund-<id>` și reîncercări):
+  la anularea înscrierii (înainte de eveniment), la ștergerea evenimentului, când suma nu se potrivește, sau când o plată sosește după ce
+  rezervarea a expirat și locurile s-au ocupat. Participantul primește un email când banii au fost returnați. O returnare refuzată de
+  Stripe rămâne `REFUND_FAILED` (de verificat în panoul Stripe).
+- Evenimentele cu plată **nu au listă de așteptare**; un eveniment cu bilete plătite nu mai poate deveni gratuit (prețul se poate schimba
+  pentru biletele următoare). Statisticile organizatorului arată încasările.
+- Plățile rămân în baza de date și după ștergerea evenimentului sau a contului (evidența banilor).
+- Local: `stripe listen --forward-to localhost:3000/api/payments/webhook` (Stripe CLI) afișează secretul `whsec_…` de pus în `.env`.
 
 ## Google, Turnstile, Sentry (opționale)
 

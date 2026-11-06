@@ -112,7 +112,7 @@ export default function EventsPage() {
                 <p className="muted">
                   {new Date(e.startsAt).toLocaleTimeString('ro-RO', { timeStyle: 'short' })}, {e.place}
                 </p>
-                <p className="small tag">{e.categoryLabel}</p>
+                <p className="small tag">{e.categoryLabel}{e.price ? <span className="muted"> · {e.price.label}</span> : null}</p>
               </div>
               <span className={`pill ${e.status === 'FULL' ? 'full' : ''}`}>{seatsLabel(e)}</span>
             </Link>

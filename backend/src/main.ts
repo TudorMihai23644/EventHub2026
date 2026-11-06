@@ -13,7 +13,8 @@ import { createValidationPipe } from './common/validation';
 import { uploadsDir } from './images/images.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // rawBody: webhook-ul Stripe se verifică pe octeții exacți primiți (JSON-ul reparsat n-ar mai avea aceeași semnătură)
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
   const docs = swaggerEnabled();
 
   // În spatele unui reverse proxy, IP-ul real vine din X-Forwarded-For (necesar pentru limitarea cererilor).

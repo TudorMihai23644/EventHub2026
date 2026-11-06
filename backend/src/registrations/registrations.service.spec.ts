@@ -8,6 +8,8 @@ function setup(event: Partial<Event> | null, existing: unknown, taken: number, d
   const manager: any = {
     findOne: jest.fn(async (entity: unknown) => (entity === Event ? event : existing)),
     count: jest.fn(async () => taken),
+    // SQL direct (payments/seats.ts): 0 locuri ținute de plăți în curs, 0 plăți de returnat
+    query: jest.fn(async () => [{ n: 0 }]),
     create: jest.fn((_entity: unknown, data: object) => data),
     save: jest.fn(async (data: object) => ({ id: 'r1', ...data })),
     delete: jest.fn(async () => ({ affected: deleted })),
@@ -98,7 +100,7 @@ describe('RegistrationsService.cancel', () => {
   it('după anulare, pune emailurile în coadă cu locurile rămase ocupate', async () => {
     const { service, manager, notifications } = setup(future, null, 1);
     await service.cancel('u1', 'e1');
-    expect(notifications.registrationCancelled).toHaveBeenCalledWith(manager, { userId: 'u1', event: future, taken: 1 });
+    expect(notifications.registrationCancelled).toHaveBeenCalledWith(manager, expect.objectContaining({ userId: 'u1', event: future, taken: 1, refunded: false }));
   });
 
   it('returnează 404 pentru un eveniment inexistent', async () => {

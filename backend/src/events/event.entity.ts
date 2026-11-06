@@ -2,6 +2,7 @@ import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMa
 import { User } from '../users/user.entity';
 import { Registration } from '../registrations/registration.entity';
 import { WaitlistEntry } from '../waitlist/waitlist-entry.entity';
+import { Payment } from '../payments/payment.entity';
 import type { EventCategory, EventFormat } from './categories';
 import type { CoverImage } from '../images/cover.service';
 import type { GeocodeStatus } from '../geo/geocode-state';
@@ -69,6 +70,10 @@ export class Event {
   @Column({ type: 'int' })
   capacity: number;
 
+  /** Prețul unui loc, în bani (4990 = 49,90 lei). null = gratuit. Vezi payments/. */
+  @Column({ type: 'int', nullable: true })
+  priceCents: number | null;
+
   @Column({ type: 'uuid' })
   organizerId: string;
 
@@ -82,6 +87,9 @@ export class Event {
   @OneToMany(() => WaitlistEntry, (w) => w.event)
   waitlist: WaitlistEntry[];
 
+  @OneToMany(() => Payment, (p) => p.event)
+  payments: Payment[];
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
@@ -92,4 +100,6 @@ export class Event {
   // populate de loadRelationCountAndMap, nu sunt coloane
   registeredCount?: number;
   waitlistCount?: number;
+  /** Locuri ținute de plăți în curs. */
+  heldCount?: number;
 }

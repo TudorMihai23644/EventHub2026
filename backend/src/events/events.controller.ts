@@ -11,6 +11,7 @@ import type { Response } from 'express';
 import { MAIL_CONFIG, MailConfig } from '../mail/mail.config';
 import { calendarLinks, eventIcs, icsFilename } from './calendar';
 import { EVENT_CATEGORIES, EVENT_FORMATS } from './categories';
+import { CURRENCY, MIN_PRICE_CENTS, STRIPE_CONFIG, StripeConfig } from '../payments/stripe';
 import { EventsService } from './events.service';
 import { CreateEventDto, ListEventsQuery, UpdateEventDto } from './dto/event.dto';
 import { JwtAuthGuard, OptionalJwtGuard } from '../auth/jwt-auth.guard';
@@ -24,6 +25,7 @@ export class EventsController {
     private readonly events: EventsService,
     @Inject(MAIL_CONFIG) private readonly mail: MailConfig,
     private readonly covers: CoverService,
+    @Inject(STRIPE_CONFIG) private readonly stripe: StripeConfig,
   ) {}
 
   @Get()
@@ -35,7 +37,8 @@ export class EventsController {
   // categoriile și formatele, cu etichetele în română (frontend-ul nu le scrie de mână)
   @Get(ROUTES.events.categories)
   categories() {
-    return { categories: EVENT_CATEGORIES, formats: EVENT_FORMATS };
+    // `payments`: formularul arată câmpul de preț doar dacă serverul poate primi plăți
+    return { categories: EVENT_CATEGORIES, formats: EVENT_FORMATS, payments: { enabled: this.stripe.enabled, currency: CURRENCY, minCents: MIN_PRICE_CENTS } };
   }
 
   // rutele fixe ('categories', 'mine', 'mine/summary') se declară înainte de ':id'

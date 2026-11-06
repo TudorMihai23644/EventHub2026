@@ -55,6 +55,9 @@ services:
       TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
       TURNSTILE_SECRET_KEY_FILE: /run/secrets/turnstile_secret_key
       SENTRY_DSN: ${SENTRY_DSN:-}
+      # Bilete cu plată (vezi README, „Bilete cu plată”): ambele secrete goale = doar evenimente gratuite.
+      STRIPE_SECRET_KEY_FILE: /run/secrets/stripe_secret_key
+      STRIPE_WEBHOOK_SECRET_FILE: /run/secrets/stripe_webhook_secret
       # Cookie-ul de sesiune: imaginea rulează cu NODE_ENV=production, dar local pe http://localhost (fără HTTPS).
       # Într-o instalare reală, cu HTTPS, setează COOKIE_SECURE=true (sau elimină linia).
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
@@ -68,6 +71,8 @@ services:
       - cloudinary_url
       - google_client_secret
       - turnstile_secret_key
+      - stripe_secret_key
+      - stripe_webhook_secret
     ports:
       - "3000:3000"
     depends_on:
@@ -94,6 +99,10 @@ secrets:
     file: ./secrets/google_client_secret.txt # poate fi gol (fără „Continuă cu Google”)
   turnstile_secret_key:
     file: ./secrets/turnstile_secret_key.txt # poate fi gol (fără verificare anti-robot)
+  stripe_secret_key:
+    file: ./secrets/stripe_secret_key.txt # poate fi gol (doar evenimente gratuite)
+  stripe_webhook_secret:
+    file: ./secrets/stripe_webhook_secret.txt # poate fi gol
 
 volumes:
   pgdata:

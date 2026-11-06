@@ -35,6 +35,15 @@ if (Missing 'google_client_secret.txt') {
   $g = Read-Host 'GOOGLE_CLIENT_SECRET (optional; Enter = fara Google)'
   Write-Secret 'google_client_secret.txt' $g.Trim()
 }
+# Optionale: Stripe (bilete cu plata): cheia secreta si secretul webhook-ului. Ambele goale = doar evenimente gratuite.
+if (Missing 'stripe_secret_key.txt') {
+  $sk = Read-Host 'STRIPE_SECRET_KEY (optional; Enter = fara plati)'
+  Write-Secret 'stripe_secret_key.txt' $sk.Trim()
+}
+if (Missing 'stripe_webhook_secret.txt') {
+  $wh = Read-Host 'STRIPE_WEBHOOK_SECRET (optional; whsec_...)'
+  Write-Secret 'stripe_webhook_secret.txt' $wh.Trim()
+}
 if (Missing 'turnstile_secret_key.txt') {
   $t = Read-Host 'TURNSTILE_SECRET_KEY (optional; Enter = fara verificare anti-robot)'
   Write-Secret 'turnstile_secret_key.txt' $t.Trim()

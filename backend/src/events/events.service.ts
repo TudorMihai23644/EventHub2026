@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { Event } from './event.entity';
@@ -14,6 +14,10 @@ import { MAX_DURATION_DAYS } from './categories';
 import { WaitlistEntry } from '../waitlist/waitlist-entry.entity';
 import { csvDate, toCsv } from '../common/csv';
 import { refreshGeocodeState } from '../geo/geocode-state';
+import { Payment } from '../payments/payment.entity';
+import { activeHolds, refundOnEventDeleted } from '../payments/seats';
+import { MAX_PRICE_CENTS, MIN_PRICE_CENTS, STRIPE_CONFIG, priceLabel } from '../payments/stripe';
+import { HOLD_GRACE_MINUTES } from '../payments/payments.service';
 
 @Injectable()
 export class EventsService {
@@ -23,6 +27,8 @@ export class EventsService {
     private readonly dataSource: DataSource,
     private readonly notifications: Notifications,
     private readonly waitlist: WaitlistService,
+    // plățile: doar dacă Stripe e configurat (testele vechi construiesc serviciul fără)
+    @Optional() @Inject(STRIPE_CONFIG) private readonly payments: { enabled: boolean } = { enabled: false },
   ) {}
 
   private base() {
@@ -31,20 +37,32 @@ export class EventsService {
       .leftJoin('e.organizer', 'o')
       .addSelect(['o.id', 'o.name'])
       .loadRelationCountAndMap('e.registeredCount', 'e.registrations')
-      .loadRelationCountAndMap('e.waitlistCount', 'e.waitlist');
+      .loadRelationCountAndMap('e.waitlistCount', 'e.waitlist')
+      // locurile ținute de plăți în curs (ceasul bazei: expiră exact când crede și înscrierea)
+      .loadRelationCountAndMap('e.heldCount', 'e.payments', 'hold', (q) => q.andWhere("hold.status = 'PENDING' AND hold.expiresAt > now()"));
   }
 
   private async views(events: Event[], viewer?: AuthUser) {
     let tickets = new Map<string, { code: string; checkedInAt: Date | null }>();
     let positions = new Map<string, number>();
+    let checkouts = new Map<string, { url: string; expiresAt: Date }>();
     if (viewer?.role === 'PARTICIPANT' && events.length) {
       const ids = events.map((e) => e.id);
       const rows = await this.regs.find({ where: { userId: viewer.id, eventId: In(ids) } });
       tickets = new Map(rows.map((r) => [r.eventId, { code: r.ticketCode, checkedInAt: r.checkedInAt }]));
       positions = await this.waitlist.positions(viewer.id, ids);
+      // o plată începută și neterminată: pagina oferă „Continuă plata” (aceeași sesiune Stripe)
+      const pending: { eventId: string; checkoutUrl: string; expiresAt: Date }[] = await this.dataSource.query(
+        `SELECT "eventId", "checkoutUrl", "expiresAt" - make_interval(mins => $3) AS "expiresAt" FROM payments
+         WHERE "userId" = $1 AND "eventId" = ANY($2) AND status = 'PENDING' AND "checkoutUrl" IS NOT NULL AND "expiresAt" > now() + make_interval(mins => $3 + 2)`,
+        [viewer.id, ids, HOLD_GRACE_MINUTES],
+      );
+      checkouts = new Map(pending.map((p) => [p.eventId, { url: p.checkoutUrl, expiresAt: p.expiresAt }]));
     }
     const now = Date.now();
-    return events.map((e) => buildEventView(e, viewer, tickets.has(e.id), now, positions.get(e.id) ?? null, tickets.get(e.id) ?? null));
+    return events.map((e) => buildEventView(e, viewer, tickets.has(e.id), now, positions.get(e.id) ?? null, tickets.get(e.id) ?? null, {
+      paymentsEnabled: this.payments.enabled, checkout: checkouts.get(e.id) ?? null,
+    }));
   }
 
   // Paginat; toate filtrele rulează în baza de date, deci `total` numără exact ce corespunde filtrelor.
@@ -57,7 +75,8 @@ export class EventsService {
       qb.andWhere('(e.title ILIKE :s OR e.location ILIKE :s)', { s: `%${escapeLike(search)}%` });
     }
     if (q.available === 'true') {
-      qb.andWhere('e.capacity > (SELECT COUNT(*) FROM registrations r WHERE r."eventId" = e.id)');
+      qb.andWhere(`e.capacity > (SELECT COUNT(*) FROM registrations r WHERE r."eventId" = e.id)
+        + (SELECT COUNT(*) FROM payments p WHERE p."eventId" = e.id AND p.status = 'PENDING' AND p."expiresAt" > now())`);
     }
     if (q.category) qb.andWhere('e.category = :category', { category: q.category });
     // `id` ca al doilea criteriu: evenimentele cu aceeași oră nu sar între pagini.
@@ -127,6 +146,7 @@ export class EventsService {
       format: dto.format ?? 'PHYSICAL',
       location: dto.location ?? '',
       onlineUrl: dto.onlineUrl ?? null,
+      priceCents: dto.priceCents || null,
       organizerId: user.id,
     });
     this.applyEventRules(event, { locationGiven: dto.location != null });
@@ -156,6 +176,9 @@ export class EventsService {
       const ms = e.endsAt.getTime() - e.startsAt.getTime();
       if (ms <= 0) throw this.bad('Ora de sfârșit trebuie să fie după ora de început.', 'endsAt');
       if (ms > MAX_DURATION_DAYS * 86_400_000) throw this.bad(`Un eveniment poate dura cel mult ${MAX_DURATION_DAYS} zile.`, 'endsAt');
+    }
+    if (e.priceCents && !this.payments.enabled) {
+      throw this.bad('Plățile nu sunt configurate pe acest server: evenimentul poate fi doar gratuit.', 'priceCents');
     }
     // harta: locație nouă → căutată din nou în fundal (GeocodingWorker); online → fără hartă
     refreshGeocodeState(e);
@@ -191,11 +214,20 @@ export class EventsService {
       if (dto.format !== undefined) event.format = dto.format;
       if (dto.onlineUrl !== undefined) event.onlineUrl = dto.onlineUrl;
       if (dto.capacity !== undefined) {
-        const taken = await m.count(Registration, { where: { eventId: id } });
-        if (dto.capacity < taken) {
-          throw this.bad(`Capacitatea nu poate fi sub numărul de înscriși (${taken}).`, 'capacity');
+        const registered = await m.count(Registration, { where: { eventId: id } });
+        const held = await activeHolds(m, id);
+        if (dto.capacity < registered + held) {
+          const extra = held ? ` plus ${held} ${held === 1 ? 'loc rezervat' : 'locuri rezervate'} de plăți în curs` : '';
+          throw this.bad(`Capacitatea nu poate fi sub numărul de înscriși (${registered}${extra}).`, 'capacity');
         }
         event.capacity = dto.capacity;
+      }
+      if (dto.priceCents !== undefined) {
+        const next = dto.priceCents || null;
+        if (!next && event.priceCents && (await m.exists(Payment, { where: { eventId: id, status: 'PAID' } }))) {
+          throw this.bad('Evenimentul are bilete plătite, deci nu poate deveni gratuit. Poți schimba prețul pentru biletele următoare.', 'priceCents');
+        }
+        event.priceCents = next;
       }
       if (dto.title !== undefined) event.title = dto.title;
       if (dto.description !== undefined) event.description = dto.description;
@@ -266,7 +298,21 @@ export class EventsService {
       checkedIn,
       noShow: started ? registered - checkedIn : null,
       noShowPercent: started && registered ? Math.round(((registered - checkedIn) / registered) * 100) : null,
+      ...(await this.revenue(id, event.priceCents)),
     };
+  }
+
+  /** Încasările (plățile păstrate; cele returnate nu mai contează). null pentru evenimente fără plăți. */
+  private async revenue(eventId: string, priceCents: number | null) {
+    const [r] = await this.dataSource.query(
+      `SELECT coalesce(sum("amountCents") FILTER (WHERE status = 'PAID'), 0)::int AS paid,
+              count(*) FILTER (WHERE status = 'PAID')::int AS tickets,
+              count(*) FILTER (WHERE status IN ('REFUND_PENDING', 'REFUNDED'))::int AS refunds
+       FROM payments WHERE "eventId" = $1`,
+      [eventId],
+    );
+    if (!priceCents && !r.tickets && !r.refunds) return { revenue: null };
+    return { revenue: { cents: r.paid, label: priceLabel(r.paid), ticketsSold: r.tickets, refunds: r.refunds } };
   }
 
   // Participanții sunt anunțați înainte de ștergere: după ea, înscrierile (și lista lor) nu mai există.
@@ -279,6 +325,8 @@ export class EventsService {
         userId,
       );
       if (opts.notify !== false) await this.notifications.eventCancelled(m, event);
+      // biletele plătite: banii înapoi (în fundal); rândurile de plată rămân (eventId devine null)
+      await refundOnEventDeleted(m, event.id);
       const cover = event.coverImage ?? null;
       await m.remove(event);
       return cover;

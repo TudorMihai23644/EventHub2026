@@ -60,7 +60,7 @@ export function useEventOptions(): EventOptions | null {
   const [options, setOptions] = useState<EventOptions | null>(null);
   useEffect(() => {
     optionsCache ??= api<EventOptions>(ENDPOINTS.events.categories).catch((e) => { optionsCache = null; throw e; });
-    optionsCache.then(setOptions).catch(() => setOptions({ categories: [], formats: [] }));
+    optionsCache.then(setOptions).catch(() => setOptions({ categories: [], formats: [], payments: { enabled: false, currency: 'RON', minCents: 200 } }));
   }, []);
   return options;
 }

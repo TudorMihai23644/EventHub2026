@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api, assetUrl } from '../api';
 import { ENDPOINTS } from '../endpoints';
 import { useAuth } from '../auth';
@@ -18,6 +18,8 @@ export default function EventDetailPage() {
   const [ev, setEv] = useState<EventItem | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const payment = params.get('plata'); // întoarcerea de la Stripe: succes / anulata
 
   // API-ul întoarce și starea utilizatorului curent (isRegistered, canRegister, ...),
   // deci se reîncarcă la autentificare / deconectare.
@@ -31,6 +33,27 @@ export default function EventDetailPage() {
   }, [id, user]);
 
   useEffect(() => { load(); }, [load]);
+
+  // După plată, Stripe ne anunță printr-un webhook, de obicei în câteva secunde: reîncărcăm până apare înscrierea.
+  const confirmed = !!ev?.isRegistered;
+  useEffect(() => {
+    if (payment !== 'succes' || confirmed) return;
+    let tries = 0;
+    const t = setInterval(() => { if (++tries > 15) clearInterval(t); else load(); }, 2000);
+    return () => clearInterval(t);
+  }, [payment, confirmed, load]);
+
+  async function buy() {
+    setBusy(true);
+    try {
+      const { url } = await api<{ url: string }>(ENDPOINTS.events.checkout(id as string), { method: 'POST' });
+      window.location.assign(url); // pagina de plată Stripe
+    } catch (err) {
+      notify('err', errMsg(err));
+      await load();
+      setBusy(false);
+    }
+  }
 
   async function act(method: 'POST' | 'DELETE') {
     setBusy(true);
@@ -81,8 +104,19 @@ export default function EventDetailPage() {
 
       <p className="desc">{ev.description}</p>
 
+      {payment === 'succes' && (
+        <p className={`alert ${ev.isRegistered ? 'ok' : ''}`} role="status">
+          {ev.isRegistered ? 'Plata a fost primită. Biletul tău este mai jos și pe email.' : 'Plata a fost trimisă; confirmăm înscrierea…'}
+          {' '}<button className="link" onClick={() => setParams({}, { replace: true })}>Închide</button>
+        </p>
+      )}
+      {payment === 'anulata' && !ev.isRegistered && (
+        <p className="alert" role="status">Plata a fost anulată; nu s-a încasat nimic. {ev.checkout ? 'Locul îți rămâne rezervat câteva minute.' : ''}</p>
+      )}
+
       <div className="panel">
         <strong>{ev.status === 'PAST' ? 'Eveniment încheiat' : ev.status === 'ONGOING' ? 'În desfășurare' : seatsLabel(ev)}</strong>
+        {ev.price && <p className="price">{ev.price.label}<span className="muted"> / bilet</span></p>}
         {ev.onlineUrl && (
           <p>Link pentru participare online: <a href={ev.onlineUrl} target="_blank" rel="noopener noreferrer">{ev.onlineUrl}</a></p>
         )}
@@ -96,6 +130,17 @@ export default function EventDetailPage() {
           <p className="muted">Conturile de organizator nu se pot înscrie la evenimente.</p>
         )}
         {ev.canRegister && <button className="btn" onClick={() => act('POST')} disabled={busy}>Înscrie-te</button>}
+        {ev.canBuy && <button className="btn" onClick={buy} disabled={busy}>Cumpără bilet · {ev.price?.label}</button>}
+        {ev.checkout && (
+          <>
+            <p>Ai început plata: locul îți este rezervat până la {new Date(ev.checkout.expiresAt).toLocaleTimeString('ro-RO', { timeStyle: 'short' })}.</p>
+            <a className="btn" href={ev.checkout.url}>Continuă plata</a>
+          </>
+        )}
+        {ev.salesClosed && <p className="muted">Vânzarea biletelor este oprită momentan.</p>}
+        {ev.price && ev.status === 'FULL' && !ev.isRegistered && !ev.checkout && (
+          <p className="muted">Toate biletele sunt vândute sau rezervate. Rezervările neplătite expiră în cel mult 36 de minute.</p>
+        )}
         {ev.mustVerifyEmail && (
           <>
             <p>

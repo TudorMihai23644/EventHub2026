@@ -8,9 +8,10 @@ import { OutboxEmail } from '../mail/outbox.entity';
 import { AuthToken } from '../auth/auth-token.entity';
 import { RefreshToken } from '../auth/refresh-token.entity';
 import { WaitlistEntry } from '../waitlist/waitlist-entry.entity';
+import { Payment } from '../payments/payment.entity';
 
 // Lista explicită de entități: CLI-ul TypeORM rulează în afara Nest, deci autoLoadEntities nu funcționează acolo.
-export const ENTITIES = [User, Event, Registration, OutboxEmail, AuthToken, RefreshToken, WaitlistEntry];
+export const ENTITIES = [User, Event, Registration, OutboxEmail, AuthToken, RefreshToken, WaitlistEntry, Payment];
 
 // Același tipar funcționează cu ts-node (*.ts în src/) și în imaginea Docker (*.js în dist/).
 export const MIGRATIONS_GLOB = join(__dirname, 'migrations', '*.{ts,js}');

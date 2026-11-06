@@ -223,3 +223,8 @@ h2 .pill { vertical-align: middle; }
 .or { display: flex; align-items: center; gap: .75rem; color: var(--muted); font-size: .85rem; margin: 0; }
 .or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .captcha { min-height: 65px; }
+
+/* ---------- preț ---------- */
+.price { font: 700 1.6rem/1.1 var(--display); color: var(--text); }
+.price .muted { font: 400 .95rem var(--sans); }
+.alert:not(.ok):not(.err) { border: 1px solid var(--line-strong); background: rgba(255, 255, 255, .03); }

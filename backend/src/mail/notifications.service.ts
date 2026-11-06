@@ -30,16 +30,22 @@ export class Notifications {
 
   /** Participantul și-a anulat înscrierea: confirmare pentru el, anunț pentru organizator. */
   /** `notifyParticipant: false`: participantul își șterge contul; nu îi mai scriem, doar organizatorului. */
-  async registrationCancelled(m: EntityManager, d: { userId: string; event: Event; taken: number; notifyParticipant?: boolean }) {
+  async registrationCancelled(m: EntityManager, d: { userId: string; event: Event; taken: number; notifyParticipant?: boolean; refunded?: boolean }) {
     const participant = await this.user(m, d.userId);
     const organizer = await this.user(m, d.event.organizerId);
     const event = info(d.event);
     if (d.notifyParticipant !== false) {
-      await this.enqueue(m, 'registration-cancelled', participant, T.registrationCancelled(this.cfg, { name: participant.name, event }));
+      await this.enqueue(m, 'registration-cancelled', participant, T.registrationCancelled(this.cfg, { name: participant.name, event, refunded: d.refunded }));
     }
     await this.enqueue(m, 'organizer-cancellation', organizer, T.organizerCancellation(this.cfg, {
       organizerName: organizer.name, participantName: participant.name, event, taken: d.taken, capacity: d.event.capacity,
     }));
+  }
+
+  /** Banii unui bilet au fost returnați (anulare, eveniment șters, plată venită după ce s-au ocupat locurile). */
+  async paymentRefunded(m: EntityManager, d: { email: string; eventTitle: string; amountCents: number }) {
+    const user = await m.findOne(User, { where: { email: d.email } });
+    await this.enqueue(m, 'payment-refunded', { email: d.email }, T.paymentRefunded(this.cfg, { name: user?.name ?? '', ...d }));
   }
 
   /** Evenimentul s-a modificat. Email doar dacă s-au schimbat titlul, data/ora sau locația. */

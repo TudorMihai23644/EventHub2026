@@ -1,7 +1,8 @@
 import { Trim } from '../../common/trim';
 import { PartialType } from '@nestjs/mapped-types';
 import { Type } from 'class-transformer';
-import { IsDefined, IsIn, IsInt, IsISO8601, IsOptional, IsString, IsUrl, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsDefined, IsIn, IsInt, IsISO8601, IsOptional, IsString, IsUrl, Max, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
+import { MAX_PRICE_CENTS, MIN_PRICE_CENTS } from '../../payments/stripe';
 import { CATEGORY_VALUES, EventCategory, EventFormat, FORMAT_VALUES } from '../categories';
 
 export class CreateEventDto {
@@ -55,6 +56,14 @@ export class CreateEventDto {
   @Min(1, { message: 'Capacitatea minimă este 1 loc.' })
   @Max(100000, { message: 'Capacitatea maximă este 100.000 de locuri.' })
   capacity: number;
+
+  /** Prețul în bani (4990 = 49,90 lei). Lipsă, null sau 0 = gratuit. Stripe cere cel puțin 2 lei. */
+  @IsOptional()
+  @IsInt({ message: 'Prețul trebuie să fie în bani, un număr întreg (ex. 4990 pentru 49,90 lei).' })
+  @ValidateIf((_o, v) => v !== 0)
+  @Min(MIN_PRICE_CENTS, { message: 'Prețul minim este 2 lei (sau 0 pentru gratuit).' })
+  @Max(MAX_PRICE_CENTS, { message: 'Prețul maxim este 10.000 de lei.' })
+  priceCents?: number | null;
 }
 
 // La editare, un câmp lipsă rămâne neschimbat, dar `null` este validat (implicit PartialType l-ar lăsa să treacă,

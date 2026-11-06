@@ -8,8 +8,12 @@ import { ResendVerificationButton } from './VerifyEmailPage';
 
 const empty = {
   title: '', description: '', startsAt: '', endsAt: '', location: '', capacity: '50',
-  category: '', format: 'PHYSICAL' as EventFormat, onlineUrl: '',
+  category: '', format: 'PHYSICAL' as EventFormat, onlineUrl: '', price: '',
 };
+
+/** „49,90” sau „49.90” lei → 4990 bani; gol → null (gratuit); text care nu e număr → NaN. */
+const toCents = (lei: string) => (lei.trim() === '' ? null : Math.round(Number(lei.trim().replace(',', '.')) * 100));
+const toLei = (cents: number | null) => (cents ? (cents / 100).toFixed(2).replace('.', ',').replace(',00', '') : '');
 
 // Nicio regulă de validare aici: formularul trimite datele, iar API-ul
 // validează și întoarce câte un mesaj pentru fiecare câmp greșit (inclusiv regulile pe format).
@@ -44,7 +48,7 @@ export default function EventFormPage() {
         setF({
           title: e.title, description: e.description, startsAt: toLocalInput(e.startsAt), endsAt: e.endsAt ? toLocalInput(e.endsAt) : '',
           capacity: String(e.capacity), category: e.category, format: e.format,
-          location: e.format === 'ONLINE' ? '' : e.location, onlineUrl: e.onlineUrl ?? '',
+          location: e.format === 'ONLINE' ? '' : e.location, onlineUrl: e.onlineUrl ?? '', price: toLei(e.priceCents),
         });
         setSavedCover(e.cover ? assetUrl(e.cover.small) : null);
       })
@@ -61,6 +65,12 @@ export default function EventFormPage() {
     setBusy(true);
     setError('');
     setFields({});
+    const priceCents = toCents(f.price);
+    if (Number.isNaN(priceCents)) { // doar conversia lei → bani; regulile (minim, maxim) le verifică API-ul
+      setFields({ priceCents: 'Scrie prețul în lei, de exemplu 49,90 (gol = gratuit).' });
+      setBusy(false);
+      return;
+    }
     try {
       const body = {
         title: f.title,
@@ -73,6 +83,7 @@ export default function EventFormPage() {
         // câmpurile care nu se aplică formatului ales nu se trimit; API-ul decide ce e obligatoriu
         ...(physical ? { location: f.location } : {}),
         ...(online ? { onlineUrl: f.onlineUrl.trim() || null } : {}),
+        ...(options?.payments?.enabled || priceCents ? { priceCents } : {}),
       };
       const saved = await api<EventItem>(editing ? ENDPOINTS.events.one(id as string) : ENDPOINTS.events.create, { method: editing ? 'PATCH' : 'POST', body });
       // imaginea, după ce evenimentul există (la creare abia acum avem id-ul)
@@ -120,6 +131,13 @@ export default function EventFormPage() {
         </label>
         <label>Capacitate maximă<input type="number" value={f.capacity} onChange={set('capacity')} /><FieldError error={fields.capacity} /></label>
       </div>
+      {(options.payments?.enabled || f.price) && (
+        <label>Preț bilet (lei, opțional)
+          <input inputMode="decimal" value={f.price} onChange={set('price')} placeholder="gol = gratuit, ex. 49,90" />
+          <span className="muted small">Participanții plătesc cu cardul prin Stripe. Biletele anulate se returnează automat.</span>
+          <FieldError error={fields.priceCents} />
+        </label>
+      )}
       <div className="two">
         <label>Începe<input type="datetime-local" value={f.startsAt} onChange={set('startsAt')} /><FieldError error={fields.startsAt} /></label>
         <label>Se termină (opțional)<input type="datetime-local" value={f.endsAt} onChange={set('endsAt')} /><FieldError error={fields.endsAt} /></label>

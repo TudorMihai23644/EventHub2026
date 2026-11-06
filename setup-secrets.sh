@@ -30,6 +30,17 @@ if [ ! -f secrets/google_client_secret.txt ]; then
   read gsecret
   printf '%s' "$gsecret" > secrets/google_client_secret.txt
 fi
+# Opționale: Stripe (bilete cu plată): cheia secretă și secretul webhook-ului. Ambele goale = doar evenimente gratuite.
+if [ ! -f secrets/stripe_secret_key.txt ]; then
+  printf 'STRIPE_SECRET_KEY (optional; Enter = fara plati): '
+  read skey
+  printf '%s' "$skey" > secrets/stripe_secret_key.txt
+fi
+if [ ! -f secrets/stripe_webhook_secret.txt ]; then
+  printf 'STRIPE_WEBHOOK_SECRET (optional; whsec_...): '
+  read whsec
+  printf '%s' "$whsec" > secrets/stripe_webhook_secret.txt
+fi
 if [ ! -f secrets/turnstile_secret_key.txt ]; then
   printf 'TURNSTILE_SECRET_KEY (optional; Enter = fara verificare anti-robot): '
   read tsecret

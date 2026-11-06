@@ -5,6 +5,7 @@ import { coverView } from '../images/cover.service';
 import { formatTicketCode } from '../registrations/ticket-code';
 import { checkInWindow } from '../registrations/checkin-window';
 import { mapView } from '../geo/geocode-state';
+import { CURRENCY, priceLabel } from '../payments/stripe';
 
 /** ONGOING: a început, dar nu s-a terminat (are oră de sfârșit). Pentru reguli contează tot `isPast` (= a început). */
 export type EventStatus = 'OPEN' | 'FULL' | 'ONGOING' | 'PAST';
@@ -16,10 +17,14 @@ export type EventStatus = 'OPEN' | 'FULL' | 'ONGOING' | 'PAST';
 export function buildEventView(
   e: Event, viewer?: AuthUser, registered = false, now = Date.now(), waitlistPosition: number | null = null,
   ticket: { code: string; checkedInAt: Date | null } | null = null,
+  /** `checkout`: plata începută de acest participant (pagina Stripe încă valabilă). */
+  pay: { paymentsEnabled?: boolean; checkout?: { url: string; expiresAt: Date } | null } = {},
 ) {
   const registeredCount = e.registeredCount ?? 0;
   const waitlistCount = e.waitlistCount ?? 0;
-  const availableSeats = Math.max(0, e.capacity - registeredCount);
+  // locurile ținute cât timp alții plătesc nu sunt libere
+  const availableSeats = Math.max(0, e.capacity - registeredCount - (e.heldCount ?? 0));
+  const paid = !!e.priceCents;
   const isPast = new Date(e.startsAt).getTime() <= now;
   const isOwner = viewer?.role === 'ORGANIZER' && viewer.id === e.organizerId;
   const isParticipant = viewer?.role === 'PARTICIPANT';
@@ -32,8 +37,11 @@ export function buildEventView(
   const isWaitlisted = isParticipant && waitlistPosition !== null;
   // ce ar putea face un participant care nu e nici înscris, nici pe listă: înscriere (locuri) sau listă (plin)
   const free = isParticipant && !isPast && !registered && !isWaitlisted;
-  const couldRegister = free && availableSeats > 0;
-  const couldWait = free && availableSeats === 0;
+  // eveniment cu plată: „Cumpără bilet” în loc de înscriere; fără listă de așteptare
+  const couldRegister = free && availableSeats > 0 && !paid;
+  const couldWait = free && availableSeats === 0 && !paid;
+  const checkout = isParticipant && !registered && !isPast ? pay.checkout ?? null : null;
+  const couldBuy = free && paid && !checkout && availableSeats > 0 && !!pay.paymentsEnabled;
   return {
     ...e,
     onlineUrl: canSeeOnlineUrl ? e.onlineUrl ?? null : null,
@@ -63,7 +71,7 @@ export function buildEventView(
     isRegistered: isParticipant && registered,
     canRegister: couldRegister && verified,
     /** S-ar putea înscrie (sau intra pe lista de așteptare), dar întâi trebuie să-și confirme adresa de email. */
-    mustVerifyEmail: (couldRegister || couldWait) && !verified,
+    mustVerifyEmail: (couldRegister || couldWait || couldBuy) && !verified,
     canCancel: isParticipant && registered && !isPast,
     canEdit: isOwner,
     // listă de așteptare
@@ -72,6 +80,15 @@ export function buildEventView(
     waitlistPosition: isWaitlisted ? waitlistPosition : null,
     canJoinWaitlist: couldWait && verified,
     canLeaveWaitlist: isWaitlisted && !isPast,
+    // plata
+    priceCents: e.priceCents ?? null,
+    price: paid ? { cents: e.priceCents!, currency: CURRENCY, label: priceLabel(e.priceCents!) } : null,
+    canBuy: couldBuy && verified,
+    /** Plata începută și neterminată: `url` duce înapoi la aceeași pagină Stripe. */
+    checkout,
+    /** Eveniment cu plată, dar plățile sunt oprite pe server (cheile Stripe lipsesc): nu se pot cumpăra bilete. */
+    salesClosed: paid && !pay.paymentsEnabled && !isPast,
+    heldCount: undefined,
     // biletul: doar pentru participantul înscris (codul îl validează organizatorul la intrare)
     ticket: isParticipant && registered && ticket
       ? { code: ticket.code, display: formatTicketCode(ticket.code), checkedInAt: ticket.checkedInAt }

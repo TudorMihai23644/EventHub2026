@@ -6,6 +6,7 @@ import { Event } from '../events/event.entity';
 import { Notifications } from '../mail/notifications.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
 import { WaitlistEntry } from '../waitlist/waitlist-entry.entity';
+import { activeHolds, refundOnCancel } from '../payments/seats';
 
 @Injectable()
 export class RegistrationsService {
@@ -27,7 +28,11 @@ export class RegistrationsService {
       }
       const existing = await m.findOne(Registration, { where: { userId, eventId } });
       if (existing) throw new ConflictException('Ești deja înscris la acest eveniment.');
-      const taken = await m.count(Registration, { where: { eventId } });
+      if (event.priceCents) {
+        throw new ConflictException({ statusCode: 409, error: 'Conflict', code: 'PAYMENT_REQUIRED', message: 'Evenimentul are bilet cu plată: folosește „Cumpără bilet”.' });
+      }
+      // locurile ținute de plăți în curs contează (ex. un eveniment devenit gratuit cât timp cineva plătea)
+      const taken = (await m.count(Registration, { where: { eventId } })) + (await activeHolds(m, eventId));
       if (taken >= event.capacity) throw new ConflictException('Nu mai sunt locuri disponibile.');
       const saved = await m.save(m.create(Registration, { userId, eventId }));
       // Cu locuri libere lista de așteptare e goală (invariant); ștergerea e doar apărare, în caz că ar rămâne ceva.
@@ -49,8 +54,10 @@ export class RegistrationsService {
       }
       const res = await m.delete(Registration, { userId, eventId });
       if (!res.affected) throw new NotFoundException('Nu ești înscris la acest eveniment.');
+      // bilet plătit: banii se returnează în fundal (RefundWorker); anularea nu așteaptă după Stripe
+      const refunded = (await refundOnCancel(m, userId, eventId)) > 0;
       const taken = await m.count(Registration, { where: { eventId } });
-      await this.notifications.registrationCancelled(m, { userId, event, taken, notifyParticipant: opts.notifyParticipant });
+      await this.notifications.registrationCancelled(m, { userId, event, taken, notifyParticipant: opts.notifyParticipant, refunded });
       // locul eliberat merge la primul de pe lista de așteptare, în aceeași tranzacție (cu lock-ul pe eveniment)
       await this.waitlist.promote(m, event);
     });

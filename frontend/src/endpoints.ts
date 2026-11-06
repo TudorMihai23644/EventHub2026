@@ -29,6 +29,7 @@ export const ENDPOINTS = {
     past: (query = '') => `/events/past${query ? `?${query}` : ''}`,
     attendeesCsv: (id: string) => `/events/${id}/registrations.csv`,
     stats: (id: string) => `/events/${id}/stats`,
+    checkout: (id: string) => `/events/${id}/checkout`, // POST → { url } (pagina de plată Stripe)
     attendance: (id: string, registrationId: string) => `/events/${id}/attendance/${registrationId}`, // PUT { present }
   },
   checkIn: '/check-in', // POST { code }, organizatorul

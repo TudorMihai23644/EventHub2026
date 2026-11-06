@@ -51,7 +51,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 | [14](#idea-14) | [x] | Location on a map (free Nominatim + Leaflet; no autocomplete, per Nominatim policy) | Feature + API | M | |
 | [15](#idea-15) | [x] | QR ticket per registration + organizer check-in scanner | Feature | M–L | |
 | [16](#idea-16) | [x] | Google sign-in (OAuth), Cloudflare Turnstile on register/login, Sentry monitoring | API | S each | |
-| [17](#idea-17) | [ ] | Paid events with Stripe Checkout | Feature + API | L | |
+| [17](#idea-17) | [x] | Paid events with Stripe Checkout | Feature + API | L | |
 | [18](#idea-18) | [ ] | Adopt the "Red Neon 4K" theme (`index.css`, `EventCard`, `Navbar`) for the whole app | Design | M | priority to decide |
 
 ---
@@ -1432,11 +1432,56 @@ Three independent integrations, each **off until its keys are configured**. With
 ---
 
 <a id="idea-17"></a>
-## 17. Paid events with Stripe
+## 17. Paid events with Stripe Checkout
 
-**Status:** idea · plan not written yet
+**Status:** done (2026-11-06), implemented without a separate plan review (user asked to finish the roadmap autonomously)
 
-Stripe Checkout for paid tickets. Never handle card data yourself.
+Organizers can put a price on an event; participants pay on Stripe's hosted Checkout page (card data never touches EventHub). **Off until `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` are set.** Without them nothing changes and a price is rejected.
+
+### Plan (as implemented)
+
+1. **Data.** `events.priceCents` (null = free; 2–10 000 lei, Stripe's RON minimum is 2 lei). New table `payments` (one row per purchase attempt): amount, status, Stripe session / payment intent, `expiresAt`, refund attempts. `userId` / `eventId` are **ON DELETE SET NULL**, with title + email snapshots: the money trail and refunds survive account or event deletion. Migration `1793994000000-Payments`.
+2. **Seat hold.** `POST /events/:id/checkout`, under the same event row lock as registration: free seats = capacity − registrations − **active holds**. Then a `PENDING` payment is inserted, holding a seat for 31 min (Stripe's minimum session is 30) + 5 min grace for late webhooks. **Stripe is called after the transaction commits**, never while holding the event lock. If Stripe fails, the hold is deleted (seat back) → 503. A participant who returns gets the same session ("Continuă plata"), not a second seat.
+3. **Holds count everywhere seats are counted:** event views (`availableSeats`, `FULL`), the "only with seats" SQL filter, free registration, capacity lowering ("… plus 2 locuri rezervate"). Expiry is judged by the **database clock** (`expiresAt > now()`), the lesson from #6 and #14.
+4. **Webhook** `POST /api/payments/webhook`: `Stripe-Signature` HMAC-SHA256 over the **raw body** (`rawBody: true` in Nest; re-serialized JSON would not match), any `v1`, ≤ 5 min old (replay window), constant-time compare. `checkout.session.completed` / `async_payment_succeeded` with `payment_status: paid` → under the payment row lock + event lock: create the registration (ticket + normal confirmation email) and mark `PAID`, **exactly once** even if Stripe redelivers. `checkout.session.expired` → `EXPIRED`.
+5. **When money must go back instead of a seat being given** (→ `REFUND_PENDING`): the amount/currency differs from what was reserved; the event was deleted or has started; the account was deleted; the person is already registered; or the hold had expired and the seats were taken meanwhile. (If the hold expired but a seat is still free, the late payer simply gets it.)
+6. **Refunds in the background** (`RefundWorker`, every 30 s, `SKIP LOCKED`, Stripe idempotency key `refund-<paymentId>`): cancelling a paid registration or deleting the event never waits on Stripe and never fails because of it. Network / 5xx / 429 → retry at 1, 2, 4 … 64 min; other 4xx → `REFUND_FAILED` (logged for the Stripe dashboard); `charge_already_refunded` → `REFUNDED`. A "Ți-am returnat banii" email when done; the cancellation email says the money is coming back.
+7. **Rules:** paid events have **no waitlist** (a freed seat isn't given away for free; promotion skips paid events); free registration on a paid event → `409 PAYMENT_REQUIRED`; a paid event with paid tickets can't become free (the price can change for future buyers). Stats show revenue, tickets sold, refunds.
+8. **Stripe over plain HTTPS** (`HttpStripeClient`, two calls, form-encoded, pinned `Stripe-Version`), no SDK. Both calls carry idempotency keys (`checkout-<id>`, `refund-<id>`). `STRIPE_API_URL` exists only for tests.
+9. **Frontend:** price field in the event form (lei → bani; only shown when the server takes payments), price on cards and the event page, "Cumpără bilet · 49,90 lei" → redirect to Stripe, "Continuă plata" with the hold's end time. Return banners (`?plata=succes` polls until the webhook lands; `?plata=anulata`). Revenue in the organizer's stats.
+
+### Decisions
+
+| Question | Choice | Why |
+|---|---|---|
+| Hold a seat during payment, or sell first and refund on overbooking? | **Hold** | Selling out is exactly when overbooking would happen; refunding paying customers is the worst experience. |
+| Refund inline or via a queue? | **Queue** | Cancelling must work even when Stripe is down; idempotency keys make retries safe. |
+| Waitlist for paid events? | **No** (Inbox) | A promoted person would need a pay-within-X-hours flow; out of scope. |
+| Stripe SDK? | **No** | Two endpoints; fetch + a tested signature check is less code to trust and trivially fakeable. |
+
+### Results
+
+| Check | Result |
+|---|---|
+| Unit `stripe.spec` (17): signature valid / rotated secret / wrong secret / tampered body / replay > 5 min / malformed; config; lei formatting; HTTP client form fields + idempotency headers + error mapping | pass |
+| Integration `payments.int-spec` (13): hold + resume, **webhook twice (incl. concurrently) → one registration, one email, still PAID**, **3 buyers / 2 seats**, Stripe down → seat back, bad signature, amount mismatch, expired + late payment (seat free → in; taken → refund), expiry by DB clock without webhook, cancel → refund + emails, refund retry / permanent / already refunded, event deleted (PAID → refund, PENDING → CANCELLED, late payment → refund), no free registration / waitlist, capacity vs holds, can't become free, payments off | pass |
+| Break on purpose: holds not counted → 3/2 test fails; no idempotency guard → duplicate-webhook test fails (it would have **refunded** a valid ticket); no signature check → signature test fails; cancel without refund → 2 tests fail | all caught, restored |
+| End-to-end, real API + fake Stripe (21 checks): price validation, `PAYMENT_REQUIRED`, organizer can't buy, session fields, hold blocks a second buyer (`SOLD_OUT`), resume, wrong signature 400, **pretty-printed JSON verified on the raw bytes**, duplicate webhook, ticket, revenue, can't become free, cancel → worker refund with idempotency key, 3 emails, seat free again | all pass |
+| Full suites | unit 29 suites / 329; integration 13 suites / 137; `migration:check` clean; `docker compose config` valid |
+
+### How it affects the project
+
+| Area | Change |
+|---|---|
+| Database | `events.priceCents`, table `payments` (+ indexes) |
+| API | `POST /events/:id/checkout`, `POST /payments/webhook`; view fields `price`, `canBuy`, `checkout`, `salesClosed`; stats `revenue`; `GET /events/categories` has `payments`; codes `SOLD_OUT`, `PAYMENT_REQUIRED` |
+| Background | `RefundWorker` (30 s) |
+| External calls | Stripe Checkout sessions + refunds, only when configured |
+| Config | `secrets/stripe_secret_key.txt`, `secrets/stripe_webhook_secret.txt` (**rerun `setup-secrets`**); webhook endpoint registered in the Stripe dashboard |
+
+### Not done (moved to Inbox)
+
+Waitlist for paid events (pay-within-X flow); organizer payouts / Stripe Connect (today all money lands in one Stripe account); expiring the Stripe session right away when an event is deleted (today a late payment is refunded instead); invoices / VAT; a refund policy ("no refunds within 48 h").
 
 [↑ Back to table of contents](#table-of-contents)
 
@@ -1507,3 +1552,4 @@ Make the unused "Pure Black & Red Neon 4K" design the app's real look, instead o
 - 2026-11-06 – Ticket follow-ups from [#15](#idea-15): (a) printable / Apple-Wallet-style ticket (PDF with the QR); (b) an in-app camera scanner for organizers who prefer it (`BarcodeDetector` where available, a JS decoder elsewhere) — today the phone camera opens the link, which works everywhere; (c) offline check-in for venues without signal (download the ticket list, sync later).
 - 2026-11-06 – For [#13](#idea-13): validate `docker-compose.yml` in CI (`docker compose config -q`) and smoke-test `docker compose up` (health check). Idea 11 part 2 broke the file and no test noticed for three ideas (fixed in [#16](#idea-16)).
 - 2026-11-06 – Google follow-ups from [#16](#idea-16): show "Conectat cu Google" and a "set a password" shortcut on the profile page (today: "Ai uitat parola?"); let a user unlink Google once they have a password.
+- 2026-11-06 – Payment follow-ups from [#17](#idea-17): (a) waitlist for paid events with a pay-within-X-hours offer; (b) Stripe Connect so each organizer is paid directly; (c) expire the Stripe session immediately when an event is deleted (`/v1/checkout/sessions/:id/expire`); (d) invoices / VAT; (e) a refund policy (e.g. no refunds in the last 48 h); (f) an admin view of `REFUND_FAILED` payments.
