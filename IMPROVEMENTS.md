@@ -9,7 +9,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 
 1. [Block late cancellation + fix the capacity race](#idea-1)
 2. [Rate limiting + helmet + Swagger only outside production](#idea-2)
-3. ~~[Delete dead frontend code](#idea-3)~~ (cancelled → 18)
+3. ~~[Delete dead frontend code](#idea-3)~~ (done in 18)
 4. [TypeORM migrations instead of `synchronize`](#idea-4)
 5. [Pagination + `available` filter in SQL + aggregate summary](#idea-5)
 6. [Transactional email (Resend)](#idea-6)
@@ -24,7 +24,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 15. [QR tickets + check-in](#idea-15)
 16. [Google sign-in, Turnstile, Sentry](#idea-16)
 17. [Paid events with Stripe](#idea-17)
-18. [Adopt the "Red Neon 4K" theme](#idea-18)
+18. [Redesign: "Noir Glass"](#idea-18)
 
 - [Reference: external APIs vs. in-house](#reference)
 - [Inbox (new ideas)](#inbox)
@@ -37,7 +37,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 |---|---|---|---|---|---|
 | [1](#idea-1) | [x] | Block cancelling a registration after the event started + lock when lowering capacity | Fix | S | |
 | [2](#idea-2) | [x] | Rate limiting (`@nestjs/throttler`) + `helmet` + Swagger only outside production | Security | S | |
-| [3](#idea-3) | ❌ | ~~Delete dead frontend code~~ – cancelled, replaced by [#18](#idea-18) | Cleanup | XS | |
+| [3](#idea-3) | [x] | ~~Delete dead frontend code~~: done as part of [#18](#idea-18) | Cleanup | XS | |
 | [4](#idea-4) | [x] | TypeORM migrations instead of `synchronize: true` | Production | S | |
 | [5](#idea-5) | [x] | Pagination on `GET /events` + `available` filter in SQL + single aggregate query for `summary` + safe search | Performance | M | 4 |
 | [6](#idea-6) | [x] | Transactional email (Resend): registration confirmation, event changed/deleted notice | Feature + API | M | |
@@ -52,7 +52,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 | [15](#idea-15) | [x] | QR ticket per registration + organizer check-in scanner | Feature | M–L | |
 | [16](#idea-16) | [x] | Google sign-in (OAuth), Cloudflare Turnstile on register/login, Sentry monitoring | API | S each | |
 | [17](#idea-17) | [x] | Paid events with Stripe Checkout | Feature + API | L | |
-| [18](#idea-18) | [ ] | Adopt the "Red Neon 4K" theme (`index.css`, `EventCard`, `Navbar`) for the whole app | Design | M | priority to decide |
+| [18](#idea-18) | [x] | Redesign "Noir Glass": minimalist black, red accents, glass (old neon files harvested and deleted) | Design | M | |
 
 ---
 
@@ -199,7 +199,7 @@ Three independent hardening changes in the backend. No database change; the fron
 <a id="idea-3"></a>
 ## 3. Delete dead frontend code
 
-**Status:** ❌ cancelled 2026-11-05 · replaced by [#18 Adopt the "Red Neon 4K" theme](#idea-18). The files stay: the neon design is planned to become the app's look. The plan below is kept for history.
+**Status:** ✅ done 2026-11-06 inside [#18](#idea-18). First cancelled (2026-11-05) to adopt the neon design; the redesign then kept two of its ideas and deleted the files. The plan below is kept for history.
 
 Remove three frontend files that nothing uses. No backend, API or database change.
 
@@ -1488,42 +1488,50 @@ Waitlist for paid events (pay-within-X flow); organizer payouts / Stripe Connect
 ---
 
 <a id="idea-18"></a>
-## 18. Adopt the "Red Neon 4K" theme
+## 18. Redesign: "Noir Glass" (minimalist black, red accents, glass)
 
-**Status:** idea · plan not written yet · **Type:** Design · **Effort:** M · **Priority:** to decide · replaces [#3](#idea-3)
+**Status:** done (2026-11-06) · replaces [#3](#idea-3)
 
-Make the unused "Pure Black & Red Neon 4K" design the app's real look, instead of deleting it.
+**Brief (user, 2026-11-06):** *"minimalist with mostly black and red hints and glassy textures here and there, pretend you are the best graphic designer in the world."*
 
-**What already exists** (`frontend/src/index.css`, 434 lines, plus `components/EventCard.tsx` and `components/Navbar.tsx`):
-- colour palette (black/obsidian backgrounds, neon reds), multi-layer glow effects, "cyber grid" background, neon scrollbar;
-- styles for: navbar, buttons (`.btn-neon`, `.btn-neon-outline`), hero banner, event grid and cards (`.neon-card`), forms and inputs (`.neon-input`), panels, alerts.
+### Decision about the old "Red Neon 4K" files
 
-**Gaps found while checking it (2026-11-05):**
-- **Fonts aren't loaded.** The theme uses Orbitron, Rajdhani and Inter, but `index.html` loads only Manrope and Unbounded, so the browser falls back to a default font.
-- **Not responsive.** `index.css` has no `@media` rules (the current `styles.css` has 6), so it needs mobile layouts.
-- **Missing styles for current pages.** No styles for the event list rows, date tile, occupancy meter, status pills, filters, toasts, event detail page, organizer dashboard or attendee list.
-- **The two components can't be used as-is.** `Navbar.tsx` links to `/my-registrations` and `/admin/events` and checks an `ADMIN` role; none of these exist (real routes: `/inscrierile-mele`, `/organizator`; roles: `PARTICIPANT`, `ORGANIZER`). `EventCard.tsx` has its own `EventItem` type (`date`, `id: string | number`) and works out "full" itself; it must use the real type from `src/types.ts` and the status/flags the API already sends.
-- **Two stylesheets.** Decide whether `index.css` replaces `styles.css` or the two get merged; today only `styles.css` is imported.
+They were the opposite of the brief: cyber grid, triple-layer neon glows, Orbitron/Rajdhani (never even loaded), no responsive rules. I kept **two ideas**, a faint red light behind the page and a styled scrollbar, and **deleted** `index.css`, `components/EventCard.tsx` and `components/Navbar.tsx`. That closes [#3](#idea-3) as well.
 
-[↑ Back to table of contents](#table-of-contents)
+### Design principles
 
----
+1. **One red, used like punctuation.** `--red #ff2d40` appears only where it means something: the primary button, focus rings, the current page (a dot under the nav link, not an underline), the "seats available" dot, the month in the date, the eyebrow above an event title. In lists the category is quiet grey (the first screenshot review showed red on three things per row, which is too much).
+2. **Glass only where something floats.** One shared recipe: a white 5.5% → 1.8% gradient, a hairline border, `backdrop-filter: blur(22px) saturate(160%)`, a 1 px inner top highlight, a long soft shadow. It's used for the header, panels, forms, profile cards, ticket, toasts, check-in verdicts, alerts and the email banner. Secondary buttons are small glass pills.
+3. **Something for the glass to refract.** Behind everything: a large diffuse red bloom (top right), a faint one behind the content and bottom left, plus SVG fractal-noise grain at 3.5%. Without them glass on black is invisible. The first review showed exactly that, so the bloom was strengthened.
+4. **Flat lists, hairline rhythm.** Event rows have no boxes, only 1 px separators. On hover: a whisper of light and a 2 px red bar that grows from the centre on the left edge.
+5. **Typography carries the hierarchy.** Unbounded 600 with tight tracking for titles and big numbers (date, price, stats, verdicts); Manrope for everything else; monospace with letter-spacing for ticket codes. Small caps with tracking for eyebrows.
+6. **Quiet motion.** No neon flicker anymore. Only a toast rising in, the hover bar, the back arrow nudging, all off with `prefers-reduced-motion`.
+7. **Respectful fallbacks.** Without `backdrop-filter`, or with `prefers-reduced-transparency`, glass becomes a solid `#0d0d10` and the bloom/grain disappear. Dark map tiles via a CSS filter; the pin is a red dot with a black ring.
 
-<a id="reference"></a>
-## Reference: external APIs vs. in-house
+### How it was checked
 
-| Need | Use | Why |
+There are no frontend tests yet (that's [#13](#idea-13)), so the design was reviewed **on the real app**: the production build served by `vite preview`, the real API on the test database seeded with realistic events (paid, sold out, hybrid, with a map), and **screenshots from headless Chrome** at 1440 × 1000 and 390 × 844.
+
+| Round | Found | Fix |
 |---|---|---|
-| Emails | Resend / Postmark / SendGrid | Deliverability (SPF/DKIM, bounces) is hard to do yourself |
-| Scheduled jobs | `@nestjs/schedule` or BullMQ + Redis | Reminders, waitlist expiry |
-| Location / map | Mapbox, Google Places, or Nominatim + Leaflet | Location is free text now; no map or proximity search |
-| Images | Cloudinary / S3 / Cloudflare R2 | Resize + CDN + storage off the API server |
-| Social login | Google OAuth (`passport-google-oauth20`) | Lower sign-up friction; keep own JWT alongside |
-| Bot protection | Cloudflare Turnstile | Free, friendlier than reCAPTCHA |
-| Monitoring | Sentry | See production errors |
-| Payments | Stripe Checkout | Never handle card data yourself |
+| 1 | Auth form and check-in column hugging the left edge with empty space on the right | narrow forms and check-in centred |
+| 1 | Glass barely visible (little to refract) | stronger, larger bloom; one behind the content |
+| 1 | Check-in button stretched to full width | natural width |
+| 1 | Empty archive: a stray divider under the "nothing yet" box | `.list:empty` hidden |
+| 1 | Red on month + category + dot in every row | list category in grey |
+| 1 | Paid event told visitors "Pentru a te înscrie" | "Pentru a cumpăra un bilet", and the login link returns to the event |
+| 2 | Phone screenshot looked clipped | **not a bug**: headless Chrome won't go below 512 px (probed: `innerWidth=512`). Re-shot inside a 390 px iframe: no overflow. |
+| 2 | Filters on the phone were content-width | full width under 600 px |
 
-**Keep in-house:** registration/capacity rules, QR codes (`qrcode` lib), `.ics` files (`ics` lib), search (Postgres full-text is enough).
+Screenshots saved in `docs/design/` (WebP, 156 KB for four; the PNGs were 2.8 MB) and shown in the README.
+
+### How it affects the project
+
+| Area | Change |
+|---|---|
+| Frontend | `styles.css` rewritten (tokens at the top, one glass recipe, fallbacks); 3 dead files deleted; two copy fixes on the event page |
+| Backend / API | none |
+| Docs | README "Design („Noir Glass”)" with screenshots |
 
 [↑ Back to table of contents](#table-of-contents)
 

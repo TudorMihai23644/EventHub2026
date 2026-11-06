@@ -124,7 +124,7 @@ export default function EventDetailPage() {
           <p className="muted">Online · linkul se afișează după înscriere.</p>
         )}
         {!user && ev.status !== 'PAST' && (
-          <p>Pentru a te înscrie, <Link to="/login">autentifică-te</Link> sau <Link to="/register">creează un cont</Link>.</p>
+          <p>{ev.price ? 'Pentru a cumpăra un bilet' : 'Pentru a te înscrie'}, <Link to={`/login?next=${encodeURIComponent(`/events/${ev.id}`)}`}>autentifică-te</Link> sau <Link to="/register">creează un cont</Link>.</p>
         )}
         {user?.role === 'ORGANIZER' && !ev.isOwner && ev.status !== 'PAST' && (
           <p className="muted">Conturile de organizator nu se pot înscrie la evenimente.</p>

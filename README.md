@@ -390,6 +390,18 @@ Planul gratuit Resend: 100 de emailuri pe zi și 3.000 pe lună. Dacă limita zi
 - Un loc eliberat la un eveniment cu listă de așteptare este dat imediat primului de pe listă; un eveniment nu are locuri libere cât timp cineva așteaptă.
 - Validare cu `class-validator` (`whitelist` + `forbidNonWhitelisted`), parole hash-uite cu bcrypt.
 
+## Design („Noir Glass”)
+
+Minimalist, aproape negru, **un singur roșu** (`--red`) folosit cu zgârcenie: butonul principal, focus, pagina curentă, punctul de
+„locuri libere”, luna din dată. **Sticlă mată** doar pentru ce plutește (antet, panouri, formulare, bilet, notificări, verdictul de la intrare),
+peste o lumină roșie difuză și o granulație fină; listele rămân plate, cu linii subțiri. Totul într-un singur fișier,
+`frontend/src/styles.css`, cu variabile la început. Fără `backdrop-filter` sau cu „transparență redusă” cerută de sistem, sticla devine
+o suprafață opacă; cu „mișcare redusă”, nicio animație.
+
+| Evenimente | Eveniment | Autentificare | Telefon |
+|---|---|---|---|
+| ![Lista de evenimente](docs/design/evenimente.webp) | ![Pagina unui eveniment cu plată și hartă](docs/design/eveniment.webp) | ![Formularul de autentificare](docs/design/autentificare.webp) | ![Pagina evenimentului pe telefon](docs/design/telefon-eveniment.webp) |
+
 ## Structura
 
 ```
