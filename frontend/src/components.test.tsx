@@ -20,7 +20,7 @@ afterEach(() => { cleanup(); apiMock.mockReset(); currentUser = null; });
 const checkIn = (path: string) =>
   render(
     <StrictMode>
-      <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter initialEntries={[path]}>
         <Routes><Route path="/check-in/:code" element={<CheckInPage />} /></Routes>
       </MemoryRouter>
     </StrictMode>,
@@ -86,5 +86,22 @@ describe('ErrorBoundary', () => {
     render(<ErrorBoundary><Boom /></ErrorBoundary>);
     expect(screen.getByText('Ceva nu a mers')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Reîncarcă pagina' })).toBeTruthy();
+  });
+});
+
+describe('Butonul de temă', () => {
+  it('comută întunecat ↔ deschis pe <html>, ține minte alegerea și își schimbă eticheta', async () => {
+    const { default: ThemeToggle } = await import('./ThemeToggle');
+    const { fireEvent } = await import('@testing-library/react');
+    document.documentElement.setAttribute('data-theme', 'dark');
+    render(<ThemeToggle />);
+    const button = screen.getByRole('button', { name: 'Treci la tema deschisă' });
+    fireEvent.click(button);
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(localStorage.getItem('eventhub-theme')).toBe('light');
+    expect(screen.getByRole('button', { name: 'Treci la tema întunecată' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button'));
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(localStorage.getItem('eventhub-theme')).toBe('dark');
   });
 });
