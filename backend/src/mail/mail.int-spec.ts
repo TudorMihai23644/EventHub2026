@@ -228,7 +228,13 @@ describe('Emailuri: coadă + trimitere, pe PostgreSQL (integrare)', () => {
   }
 
   // Ora bazei de date (același ceas ca `sendAfter`), pentru a simula „peste un minut” fără să amestecăm ceasurile.
+  /**
+   * Ora bazei, rotunjită în SUS la milisecundă. PostgreSQL are microsecunde, un Date JS doar milisecunde: `now()` =
+   * 10.123456 devine 10.123, deci un email scris în aceeași milisecundă (sendAfter = 10.123456) ar părea „din viitor”
+   * și n-ar fi luat. Pe o mașină rapidă (CI) se întâmplă des. +1 ms acoperă orice fracțiune pierdută.
+   */
   async function dbNow(): Promise<Date> {
-    return (await ds.query('SELECT now() AS now'))[0].now;
+    const now: Date = (await ds.query('SELECT now() AS now'))[0].now;
+    return new Date(now.getTime() + 1);
   }
 });
