@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, assetUrl } from '../api';
 import { ENDPOINTS } from '../endpoints';
@@ -8,6 +8,8 @@ import { DateTile, Loading, errMsg, fmtWhen, seatsLabel, useToast } from '../ui'
 import { ResendVerificationButton } from './VerifyEmailPage';
 import { API_URL } from '../config';
 import TicketCard from '../TicketCard';
+
+const EventMap = lazy(() => import('../EventMap'));
 
 export default function EventDetailPage() {
   const { id } = useParams();
@@ -129,6 +131,21 @@ export default function EventDetailPage() {
         {ev.checkIn?.canScan && <Link className="btn ghost" to="/check-in">Validează bilete</Link>}
       </div>
 
+      {ev.map && (
+        <div className="panel place">
+          <strong>Unde</strong>
+          <p className="muted">{ev.location}</p>
+          <Suspense fallback={<div className="event-map" />}>
+            <EventMap lat={ev.map.lat} lng={ev.map.lng} label={ev.location} />
+          </Suspense>
+          <div className="actions">
+            <a className="btn ghost" href={ev.map.directionsUrl} target="_blank" rel="noopener noreferrer">Indicații de orientare</a>
+            <a className="btn ghost" href={ev.map.osmUrl} target="_blank" rel="noopener noreferrer">Deschide în OpenStreetMap</a>
+          </div>
+        </div>
+      )}
+      {ev.geocode && <GeocodeHint g={ev.geocode} />}
+
       {ev.calendar && ev.status !== 'PAST' && (
         <div className="panel calendar">
           <strong>Adaugă în calendar</strong>
@@ -141,4 +158,13 @@ export default function EventDetailPage() {
       )}
     </article>
   );
+}
+
+/** Pentru organizator: confirmă ce adresă a găsit harta sau explică de ce nu există hartă. */
+function GeocodeHint({ g }: { g: NonNullable<EventItem['geocode']> }) {
+  if (g.status === 'FOUND') return <p className="muted small">Pe hartă: {g.label}. Dacă punctul nu e cel bun, scrie adresa mai exact (stradă, număr, oraș).</p>;
+  if (g.status === 'PENDING') return <p className="muted small">Căutăm adresa pe hartă; reîncarcă pagina peste câteva secunde.</p>;
+  if (g.status === 'NOT_FOUND') return <p className="alert err small">Adresa nu a fost găsită pe hartă, deci participanții nu văd o hartă. Scrie strada, numărul și orașul.</p>;
+  if (g.status === 'FAILED') return <p className="muted small">Serviciul de hărți nu a răspuns. Harta apare după următoarea modificare a locației.</p>;
+  return null;
 }

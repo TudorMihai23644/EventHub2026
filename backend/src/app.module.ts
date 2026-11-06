@@ -11,6 +11,7 @@ import { EventsModule } from './events/events.module';
 import { RegistrationsModule } from './registrations/registrations.module';
 import { RemindersModule } from './reminders/reminders.module';
 import { AccountModule } from './account/account.module';
+import { GeoModule } from './geo/geo.module';
 import { dataSourceOptions } from './database/data-source';
 
 @Module({
@@ -28,6 +29,7 @@ import { dataSourceOptions } from './database/data-source';
     RegistrationsModule,
     RemindersModule, // memento cu o zi înainte de eveniment
     AccountModule, // profil: nume, parolă, ștergerea contului
+    GeoModule, // locația pe hartă (Nominatim, în fundal)
   ],
 })
 export class AppModule {}

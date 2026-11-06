@@ -53,6 +53,10 @@ export interface EventItem {
   canLeaveWaitlist: boolean;
   /** Doar la detaliile unui eveniment (GET /events/:id): link Google Calendar și calea fișierului .ics. */
   calendar?: { google: string; icsPath: string };
+  /** Punctul pe hartă (găsit în fundal, prin OpenStreetMap); null pentru online sau dacă adresa nu a fost găsită. */
+  map: { lat: number; lng: number; osmUrl: string; directionsUrl: string } | null;
+  /** Doar pentru organizator: starea căutării adresei pe hartă și adresa găsită. */
+  geocode: { status: 'PENDING' | 'FOUND' | 'NOT_FOUND' | 'FAILED' | 'SKIPPED'; label: string | null } | null;
   /** Biletul participantului înscris (codul din QR); null pentru ceilalți. */
   ticket: { code: string; display: string; checkedInAt: string | null } | null;
   /** Doar pentru organizatorul evenimentului: fereastra de validare a biletelor. */

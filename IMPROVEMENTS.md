@@ -20,7 +20,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 11. [Event fields: `endsAt`, category, cover image, online events](#idea-11)
 12. [Organizer tools: CSV export + analytics](#idea-12)
 13. [CI, linting, frontend tests, frontend in Docker](#idea-13)
-14. [Location autocomplete + map](#idea-14)
+14. [Location on a map](#idea-14)
 15. [QR tickets + check-in](#idea-15)
 16. [Google sign-in, Turnstile, Sentry](#idea-16)
 17. [Paid events with Stripe](#idea-17)
@@ -48,7 +48,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 | [11](#idea-11) | [x] | Event fields: `endsAt`, category/tags, cover image (Cloudinary), online/physical + link | Feature + API | M | |
 | [12](#idea-12) | [x] | Organizer tools: CSV export of attendees, analytics (registrations over time, no-show rate) | Feature | S–M | |
 | [13](#idea-13) | [ ] | CI (lint + tests), ESLint/Prettier, frontend tests, frontend in `docker-compose` | Tooling | M | |
-| [14](#idea-14) | [ ] | Location autocomplete + map (Mapbox / Google Places, or free Nominatim + Leaflet) | Feature + API | M | |
+| [14](#idea-14) | [x] | Location on a map (free Nominatim + Leaflet; no autocomplete, per Nominatim policy) | Feature + API | M | |
 | [15](#idea-15) | [x] | QR ticket per registration + organizer check-in scanner | Feature | M–L | |
 | [16](#idea-16) | [ ] | Google sign-in (OAuth), Cloudflare Turnstile on register/login, Sentry monitoring | API | S each | |
 | [17](#idea-17) | [ ] | Paid events with Stripe Checkout | Feature + API | L | |
@@ -1242,11 +1242,64 @@ No frontend tests, no ESLint/Prettier, no CI, and the frontend isn't in `docker-
 ---
 
 <a id="idea-14"></a>
-## 14. Location autocomplete + map
+## 14. Location on a map (Nominatim + Leaflet)
 
-**Status:** idea · plan not written yet
+**Status:** done (2026-11-06), implemented without a separate plan review (user asked to finish the roadmap autonomously)
 
-Location is free text, so it can't be shown on a map or searched by distance. Use Mapbox / Google Places, or free Nominatim + Leaflet.
+Location was free text: no map, no directions. Now physical and hybrid events show a map with a pin, plus links for directions and OpenStreetMap.
+
+### Choice of service
+
+| Option | Verdict |
+|---|---|
+| Google Places / Mapbox autocomplete | Need an account, billing and an API key in the browser. Overkill for a small app. |
+| **Nominatim (OpenStreetMap) + Leaflet** | Free, no key. Its policy forbids **autocomplete**, needs **≤ 1 request/s**, an **identifying User-Agent**, **caching** and **attribution**. The design below follows all five. |
+
+So: **no autocomplete**. The organizer types the address as before; it is looked up once, when the event is saved.
+
+### Plan (as implemented)
+
+1. **Columns on `events`** (migration `1793992000000-AddEventMap`, generated + a hand-written backfill): `geocodeStatus` (`PENDING / FOUND / NOT_FOUND / FAILED / SKIPPED`), `geocodeQuery` (normalized location = cache key), `latitude`, `longitude`, `geocodeLabel` (the address Nominatim found), `geocodeAttempts`, `geocodeAfter`. Backfill: online events → `SKIPPED`, the rest get their key and wait in the queue.
+2. **Saving never waits for the geocoder.** `applyEventRules` (create + update) calls `refreshGeocodeState`: online → `SKIPPED`; changed location → `PENDING` and the old point is cleared; same location written differently (spaces, capitals) → nothing changes.
+3. **`GeocodingWorker`** (every 10 s, up to 10 events per tick, one at a time):
+   - **cache** first: another event with the same key already `FOUND`/`NOT_FOUND` → copy, no request;
+   - otherwise `NominatimGeocoder` (`/search?format=jsonv2&limit=1&countrycodes=ro`, `User-Agent`, `Accept-Language: ro`, 8 s timeout). A queue spaces requests ≥ 1.1 s apart, even with parallel calls;
+   - no result → `NOT_FOUND`; network error / 5xx / 429 / bad JSON → retry after 1, 2, 4, 8, 16 min, then `FAILED`;
+   - **conditional update** `WHERE geocodeQuery = <key it searched for> AND status = 'PENDING'`: if the organizer changed the address while the request was in flight, the stale answer is dropped;
+   - plain SQL, so `updatedAt` (→ `.ics` SEQUENCE) doesn't change: a geocode result isn't an edit.
+4. **API view:** `map: { lat, lng, osmUrl, directionsUrl }` or `null`; owner only: `geocode: { status, label }`. The internal columns are removed from responses.
+5. **Frontend:** `EventMap` (Leaflet, OSM tiles, attribution, CSS pin instead of Leaflet's default images, which break with bundlers; scroll-wheel zoom only after a click). Lazy chunk, loaded only for events with a map. Tiles inverted with a CSS filter to match the dark UI. The owner sees a hint: "Pe hartă: <found address>", "not found, write street + number + city", or "service didn't answer".
+6. **Config:** `GEOCODER=nominatim|off`, `GEOCODER_USER_AGENT` (default `EventHub/1.0 (+APP_URL)`; production should add a contact), `GEOCODER_COUNTRY=ro`, `NOMINATIM_URL`, `GEOCODER_MIN_INTERVAL_MS` (tests only). Frontend: `VITE_MAP_TILES_URL`, `VITE_MAP_ATTRIBUTION` (public OSM tiles are meant for light use).
+
+### Found along the way
+
+An e2e script crashed after starting the API on the test database; the orphaned server's workers then processed rows **during** the integration tests (4 tests failed once, passed on rerun). `openTestDb()` now tags its connections (`application_name`) and **refuses to run while any other client is connected** to the test database, with a clear message. Verified by holding a `psql` session open. The e2e scripts now kill their server on any exit.
+
+### Results
+
+| Check | Result |
+|---|---|
+| Unit `geocode-state.spec` (key, state transitions, public map) + `geocoder.spec` (fake HTTP Nominatim: params/UA, empty → null, invalid coords, 5xx/429/bad JSON → retryable error, unreachable server, ≥ interval between parallel calls, queue survives an error, config) | 17 pass |
+| Integration `geocoding.int-spec` (8): save doesn't wait; FOUND/NOT_FOUND; cache across events; online skipped; edit without location change doesn't re-query; backoff 1→16 min then FAILED; **address changed mid-request**; `updatedAt` unchanged; `GEOCODER=off` | pass |
+| Break on purpose: drop the `geocodeQuery` condition → "address changed mid-request" fails; disable the cache → cache test fails | caught, restored |
+| Migration: backfill on real rows (physical → key, online → SKIPPED); JS and SQL normalization identical (`str. lungă 1, brașov`); `migration:check` | pass |
+| End-to-end (real API + fake Nominatim, 9 checks): instant create, map after the worker, no internal fields, cache (2 requests for 3 physical events), NOT_FOUND for owner, UA + country, list has `map` | pass |
+| Full suites | unit 25 suites / 282; integration 11 suites / 117 |
+| Frontend `tsc` + build | pass; Leaflet in its own chunk (≈ 44 kB gzip), main bundle unchanged |
+
+### How it affects the project
+
+| Area | Change |
+|---|---|
+| Database | 7 columns on `events` |
+| Backend | new `geo/` module (config, client, state, worker); hook in `applyEventRules`; view fields `map`, `geocode` |
+| External calls | Outbound HTTPS to `nominatim.openstreetmap.org` from the API (only when an address changes); browsers load tiles from `tile.openstreetmap.org` |
+| Frontend | `leaflet` dependency, `EventMap`, owner hint |
+| Tests | `openTestDb()` refuses a shared test DB |
+
+### Not done (moved to Inbox)
+
+Events near me (distance search), dragging the pin to correct it, retrying `FAILED` automatically (daily), a tile provider + CSP for production.
 
 [↑ Back to table of contents](#table-of-contents)
 
@@ -1393,3 +1446,5 @@ Make the unused "Pure Black & Red Neon 4K" design the app's real look, instead o
 - 2026-11-05 – **Content-Security-Policy for the frontend.** helmet's CSP from [#2](#idea-2) only covers API responses; the React app's `index.html` (served by Vite / a static host) has none. A CSP (`script-src 'self'`, fonts from Google, `connect-src` = the API) is the main defense against XSS, the attack [#8](#idea-8) limits the damage of. Set it in the static host's headers, or a `<meta http-equiv>` as a fallback.
 - 2026-11-05 – Tests under load, for [#13](#idea-13): twice now (ideas 7 and 9) one unit test failed only because the machine was heavily loaded (suites ran 5–10× slower; VS Code using a lot of CPU) and passed on rerun. In CI, run Jest with a fixed number of workers (`--maxWorkers=2`) so timings stay predictable.
 - 2026-11-05 – Update outdated dependencies that `npm install` warns about (`glob`, `inflight`, `uuid`, pulled in by other packages), as part of [#13](#idea-13).
+- 2026-11-06 – Map follow-ups from [#14](#idea-14): (a) "events near me" (distance filter; `earthdistance` or PostGIS, browser geolocation only on click); (b) let the organizer drag the pin when OSM finds the wrong spot (store a manual override that geocoding never replaces); (c) retry `FAILED` geocodes once a day instead of only after a location edit; (d) production tile provider + add its host to the frontend CSP (`img-src`).
+- 2026-11-06 – Ticket follow-ups from [#15](#idea-15): (a) printable / Apple-Wallet-style ticket (PDF with the QR); (b) an in-app camera scanner for organizers who prefer it (`BarcodeDetector` where available, a JS decoder elsewhere) — today the phone camera opens the link, which works everywhere; (c) offline check-in for venues without signal (download the ticket list, sync later).

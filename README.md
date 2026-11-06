@@ -63,7 +63,8 @@ npm run test:int       # paginare, căutare, rezumat; emailuri (coadă, rollback
 npm run test:db:down   # oprește și șterge containerul
 ```
 
-Testele de integrare șterg toate tabelele din baza de test și refuză să ruleze pe o bază al cărei nume nu conține „test”.
+Testele de integrare șterg toate tabelele din baza de test și refuză să ruleze pe o bază al cărei nume nu conține „test”,
+sau cât timp alt program (ex. un API pornit pe ea) e conectat la baza de test: worker-ele lui ar procesa datele testelor.
 Altă bază: `TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_USER`, `TEST_DB_PASSWORD`, `TEST_DB_NAME`.
 
 ## API
@@ -152,6 +153,21 @@ sunt publice, dar adaptează răspunsul dacă cererea are token.
   - Stocare: implicit pe disc (volumul Docker `uploads`, servit la `/api/uploads/…` cu cache de un an); pe **Cloudinary** dacă
     `secrets/cloudinary_url.txt` (`CLOUDINARY_URL`, forma `cloudinary://<api_key>:<api_secret>@<cloud_name>`) nu e gol.
   - Înlocuirea, eliminarea sau ștergerea evenimentului șterg și fișierele vechi. Răspunsurile conțin doar `cover: { small, large }`.
+
+## Harta
+
+- Locația evenimentelor fizice și hibride se caută pe **Nominatim** (OpenStreetMap), **în fundal**: salvarea nu așteaptă după serviciu.
+  Evenimentul primește `PENDING`, iar `GeocodingWorker` (la 10 secunde) îl rezolvă: `FOUND` (punct pe hartă), `NOT_FOUND` (adresa nu există
+  în OpenStreetMap) sau, după 6 încercări eșuate la 1, 2, 4, 8, 16 minute, `FAILED`. O locație modificată se caută din nou; doar titlul sau data, nu.
+- Respectă [politica Nominatim](https://operations.osmfoundation.org/policies/nominatim/): cel mult **o cerere pe secundă**, un **User-Agent**
+  propriu (`GEOCODER_USER_AGENT`; pune un contact în producție), **fără autocompletare** (doar la salvare) și **cache**: o adresă găsită deja
+  pentru alt eveniment (aceeași, ignorând spațiile și literele mari) nu se mai cere. Căutarea e limitată la România (`GEOCODER_COUNTRY=ro`).
+  `GEOCODER=off` oprește complet cererile (evenimentele nu au hartă). `NOMINATIM_URL` permite un server propriu.
+- API: `map: { lat, lng, osmUrl, directionsUrl }` pentru toată lumea (sau `null`); organizatorul primește și `geocode: { status, label }`,
+  adică adresa găsită, ca să vadă dacă punctul e cel bun. Rezultatul nu schimbă `updatedAt` (calendarele nu văd o „modificare”).
+- Frontend: hartă **Leaflet** cu plăci OpenStreetMap și atribuire, încărcată separat (doar pe pagina unui eveniment cu hartă), întunecată
+  ca restul interfeței; linkuri „Indicații de orientare” (Google Maps) și „Deschide în OpenStreetMap”. Plăcile publice OSM sunt pentru trafic
+  mic; în producție cu mulți vizitatori, un furnizor de plăci prin `VITE_MAP_TILES_URL` și `VITE_MAP_ATTRIBUTION` (`frontend/.env`).
 
 ## Instrumente pentru organizator
 

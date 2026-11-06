@@ -4,6 +4,7 @@ import { Registration } from '../registrations/registration.entity';
 import { WaitlistEntry } from '../waitlist/waitlist-entry.entity';
 import type { EventCategory, EventFormat } from './categories';
 import type { CoverImage } from '../images/cover.service';
+import type { GeocodeStatus } from '../geo/geocode-state';
 
 @Entity('events')
 export class Event {
@@ -40,6 +41,30 @@ export class Event {
   /** Imaginea de copertă: cheile și adresele celor două variante WebP (vezi images/cover.service.ts). */
   @Column({ type: 'jsonb', nullable: true })
   coverImage: CoverImage | null;
+
+  // ---- harta (vezi geo/): completate în fundal de GeocodingWorker ----
+  @Column({ type: 'varchar', length: 10, default: 'PENDING' })
+  geocodeStatus: GeocodeStatus;
+
+  /** Locația normalizată pentru care s-a căutat (cheia de cache); null pentru online. */
+  @Column({ type: 'varchar', length: 160, nullable: true })
+  geocodeQuery: string | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  latitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  longitude: number | null;
+
+  /** Adresa găsită de OpenStreetMap (organizatorul verifică astfel că punctul e cel bun). */
+  @Column({ type: 'varchar', length: 300, nullable: true })
+  geocodeLabel: string | null;
+
+  @Column({ type: 'int', default: 0 })
+  geocodeAttempts: number;
+
+  @Column({ type: 'timestamptz', default: () => 'now()' })
+  geocodeAfter: Date;
 
   @Column({ type: 'int' })
   capacity: number;

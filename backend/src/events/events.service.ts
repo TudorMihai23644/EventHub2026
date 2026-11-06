@@ -13,6 +13,7 @@ import { WaitlistService } from '../waitlist/waitlist.service';
 import { MAX_DURATION_DAYS } from './categories';
 import { WaitlistEntry } from '../waitlist/waitlist-entry.entity';
 import { csvDate, toCsv } from '../common/csv';
+import { refreshGeocodeState } from '../geo/geocode-state';
 
 @Injectable()
 export class EventsService {
@@ -156,6 +157,8 @@ export class EventsService {
       if (ms <= 0) throw this.bad('Ora de sfârșit trebuie să fie după ora de început.', 'endsAt');
       if (ms > MAX_DURATION_DAYS * 86_400_000) throw this.bad(`Un eveniment poate dura cel mult ${MAX_DURATION_DAYS} zile.`, 'endsAt');
     }
+    // harta: locație nouă → căutată din nou în fundal (GeocodingWorker); online → fără hartă
+    refreshGeocodeState(e);
   }
 
   // Tranzacție + același lock ca la înscriere: o înscriere simultană fie este

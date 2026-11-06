@@ -46,6 +46,9 @@ services:
       # Imaginile de copertă: local în volumul `uploads`; pe Cloudinary dacă secrets/cloudinary_url.txt nu e gol.
       UPLOADS_DIR: /app/uploads
       CLOUDINARY_URL_FILE: /run/secrets/cloudinary_url
+      # Harta (vezi README, „Harta”): Nominatim / OpenStreetMap; GEOCODER=off oprește cererile.
+      GEOCODER: ${GEOCODER:-nominatim}
+      GEOCODER_USER_AGENT: ${GEOCODER_USER_AGENT:-}
     volumes:
       - uploads:/app/uploads
       # Cookie-ul de sesiune: imaginea rulează cu NODE_ENV=production, dar local pe http://localhost (fără HTTPS).

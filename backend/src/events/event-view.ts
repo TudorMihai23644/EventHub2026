@@ -4,6 +4,7 @@ import { categoryLabel, placeLabel } from './categories';
 import { coverView } from '../images/cover.service';
 import { formatTicketCode } from '../registrations/ticket-code';
 import { checkInWindow } from '../registrations/checkin-window';
+import { mapView } from '../geo/geocode-state';
 
 /** ONGOING: a început, dar nu s-a terminat (are oră de sfârșit). Pentru reguli contează tot `isPast` (= a început). */
 export type EventStatus = 'OPEN' | 'FULL' | 'ONGOING' | 'PAST';
@@ -39,6 +40,17 @@ export function buildEventView(
     // doar adresele imaginilor; cheile interne de stocare nu ies din API
     coverImage: undefined,
     cover: coverView(e.coverImage),
+    // harta: doar punctul găsit; câmpurile interne ale geocodării nu ies din API
+    map: mapView(e),
+    latitude: undefined,
+    longitude: undefined,
+    geocodeQuery: undefined,
+    geocodeAttempts: undefined,
+    geocodeAfter: undefined,
+    geocodeStatus: undefined,
+    geocodeLabel: undefined,
+    /** Pentru organizator: ce adresă a găsit OpenStreetMap (sau de ce nu e hartă). */
+    geocode: isOwner && e.format !== 'ONLINE' ? { status: e.geocodeStatus, label: e.geocodeLabel ?? null } : null,
     hasOnlineLink: (e.format === 'ONLINE' || e.format === 'HYBRID') && !!e.onlineUrl,
     categoryLabel: categoryLabel(e.category),
     place: placeLabel(e),
