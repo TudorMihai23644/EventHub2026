@@ -72,7 +72,7 @@ export class RemindersService {
       );
       const now: Date = (await m.query('SELECT now() AS now'))[0].now;
       for (const r of rows) {
-        await this.notifications.reminder(m, { user: r.user, event: r.event, hasWaitlist: waiting.has(r.eventId), now });
+        await this.notifications.reminder(m, { user: r.user, event: r.event, hasWaitlist: waiting.has(r.eventId), now, ticket: r.ticketCode });
       }
       await m.update(Registration, { id: In(ids) }, { reminderSentAt: () => 'now()' });
       this.logger.log(`${rows.length} memento-uri puse în coadă.`);

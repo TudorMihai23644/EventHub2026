@@ -27,7 +27,9 @@ export const ENDPOINTS = {
     past: (query = '') => `/events/past${query ? `?${query}` : ''}`,
     attendeesCsv: (id: string) => `/events/${id}/registrations.csv`,
     stats: (id: string) => `/events/${id}/stats`,
+    attendance: (id: string, registrationId: string) => `/events/${id}/attendance/${registrationId}`, // PUT { present }
   },
+  checkIn: '/check-in', // POST { code }, organizatorul
   registrations: { mine: '/registrations/me' },
   waitlist: { mine: '/waitlist/me' },
   account: { profile: '/account', password: '/account/password' }, // PATCH profil, POST parolă, DELETE cont

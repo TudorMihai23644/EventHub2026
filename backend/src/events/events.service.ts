@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { Event } from './event.entity';
 import { Registration } from '../registrations/registration.entity';
 import { CreateEventDto, ListEventsQuery, PAGE_SIZE_DEFAULT, UpdateEventDto } from './dto/event.dto';
@@ -34,16 +34,16 @@ export class EventsService {
   }
 
   private async views(events: Event[], viewer?: AuthUser) {
-    let registered = new Set<string>();
+    let tickets = new Map<string, { code: string; checkedInAt: Date | null }>();
     let positions = new Map<string, number>();
     if (viewer?.role === 'PARTICIPANT' && events.length) {
       const ids = events.map((e) => e.id);
       const rows = await this.regs.find({ where: { userId: viewer.id, eventId: In(ids) } });
-      registered = new Set(rows.map((r) => r.eventId));
+      tickets = new Map(rows.map((r) => [r.eventId, { code: r.ticketCode, checkedInAt: r.checkedInAt }]));
       positions = await this.waitlist.positions(viewer.id, ids);
     }
     const now = Date.now();
-    return events.map((e) => buildEventView(e, viewer, registered.has(e.id), now, positions.get(e.id) ?? null));
+    return events.map((e) => buildEventView(e, viewer, tickets.has(e.id), now, positions.get(e.id) ?? null, tickets.get(e.id) ?? null));
   }
 
   // Paginat; toate filtrele rulează în baza de date, deci `total` numără exact ce corespunde filtrelor.
@@ -219,6 +219,7 @@ export class EventsService {
     return rows.map((r) => ({
       id: r.id,
       registeredAt: r.createdAt,
+      checkedInAt: r.checkedInAt,
       user: { id: r.user.id, name: r.user.name, email: r.user.email },
     }));
   }
@@ -228,9 +229,9 @@ export class EventsService {
     const event = await this.owned(userId, id);
     const regs = await this.regs.find({ where: { eventId: id }, relations: { user: true }, order: { createdAt: 'ASC', id: 'ASC' } });
     const waiting = await this.dataSource.getRepository(WaitlistEntry).find({ where: { eventId: id }, relations: { user: true }, order: { createdAt: 'ASC', id: 'ASC' } });
-    const rows: unknown[][] = [['Nr.', 'Nume', 'Email', 'Status', 'Data']];
-    regs.forEach((r, i) => rows.push([i + 1, r.user.name, r.user.email, 'Înscris', csvDate(r.createdAt, timeZone)]));
-    waiting.forEach((w, i) => rows.push([regs.length + i + 1, w.user.name, w.user.email, `Pe lista de așteptare (locul ${i + 1})`, csvDate(w.createdAt, timeZone)]));
+    const rows: unknown[][] = [['Nr.', 'Nume', 'Email', 'Status', 'Data', 'Prezent']];
+    regs.forEach((r, i) => rows.push([i + 1, r.user.name, r.user.email, 'Înscris', csvDate(r.createdAt, timeZone), r.checkedInAt ? `Da (${csvDate(r.checkedInAt, timeZone)})` : 'Nu']));
+    waiting.forEach((w, i) => rows.push([regs.length + i + 1, w.user.name, w.user.email, `Pe lista de așteptare (locul ${i + 1})`, csvDate(w.createdAt, timeZone), '']));
     return { event, csv: toCsv(rows) };
   }
 
@@ -241,7 +242,10 @@ export class EventsService {
   async stats(userId: string, id: string, timeZone: string) {
     const event = await this.owned(userId, id);
     const registered = await this.regs.count({ where: { eventId: id } });
+    const checkedIn = await this.regs.count({ where: { eventId: id, checkedInAt: Not(IsNull()) } });
     const waiting = await this.dataSource.getRepository(WaitlistEntry).count({ where: { eventId: id } });
+    // absenți: au sens doar după ce evenimentul a început
+    const started = new Date(event.startsAt).getTime() <= Date.now();
     const byDay: { day: string; count: number }[] = await this.dataSource.query(
       `SELECT to_char("createdAt" AT TIME ZONE $2, 'YYYY-MM-DD') AS day, count(*)::int AS count
          FROM registrations WHERE "eventId" = $1 GROUP BY 1 ORDER BY 1`,
@@ -256,6 +260,9 @@ export class EventsService {
       availableSeats: Math.max(0, event.capacity - registered),
       occupancyPercent: event.capacity ? Math.min(100, Math.round((registered / event.capacity) * 100)) : 0,
       byDay: byDay.map((d) => ({ date: d.day, count: d.count, cumulative: (total += d.count) })),
+      checkedIn,
+      noShow: started ? registered - checkedIn : null,
+      noShowPercent: started && registered ? Math.round(((registered - checkedIn) / registered) * 100) : null,
     };
   }
 

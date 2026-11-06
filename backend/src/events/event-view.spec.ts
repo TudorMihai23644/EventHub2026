@@ -75,4 +75,23 @@ describe('buildEventView', () => {
     expect(buildEventView(ev(), { id: 'org2', role: 'ORGANIZER' }).canEdit).toBe(false);
     expect(buildEventView(ev())).toMatchObject({ canRegister: false, canCancel: false, canEdit: false });
   });
+
+  describe('bilet și validare', () => {
+    const t = { code: '7KQ2M9XH4T', checkedInAt: null };
+    it('biletul doar pentru participantul înscris', () => {
+      expect(buildEventView(ev(), { id: 'p1', role: 'PARTICIPANT' }, true, Date.now(), null, t).ticket)
+        .toEqual({ code: '7KQ2M9XH4T', display: '7KQ2M-9XH4T', checkedInAt: null });
+      expect(buildEventView(ev(), { id: 'p1', role: 'PARTICIPANT' }, false, Date.now(), null, t).ticket).toBeNull();
+      expect(buildEventView(ev(), { id: 'org1', role: 'ORGANIZER' }, true, Date.now(), null, t).ticket).toBeNull();
+    });
+    it('fereastra de scanare doar pentru organizatorul proprietar', () => {
+      const start = new Date('2026-12-01T17:00:00Z');
+      const view = (now: string) => buildEventView(ev({ startsAt: start, endsAt: null }), { id: 'org1', role: 'ORGANIZER' }, false, Date.parse(now)).checkIn;
+      expect(view('2026-12-01T13:59:00Z')).toMatchObject({ canScan: false, canMarkAttendance: false });
+      expect(view('2026-12-01T14:00:00Z')).toMatchObject({ canScan: true, canMarkAttendance: true });
+      expect(view('2026-12-02T11:01:00Z')).toMatchObject({ canScan: false, canMarkAttendance: true });
+      expect(buildEventView(ev(), { id: 'org2', role: 'ORGANIZER' }).checkIn).toBeNull();
+      expect(buildEventView(ev()).checkIn).toBeNull();
+    });
+  });
 });

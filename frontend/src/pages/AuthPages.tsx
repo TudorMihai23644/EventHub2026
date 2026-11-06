@@ -1,15 +1,21 @@
 import { FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { Role } from '../types';
 import { FieldError, formError, useToast } from '../ui';
 
-// Validarea se face în API; formularele afișează mesajele primite, câmp cu câmp.
+/// Validarea se face în API; formularele afișează mesajele primite, câmp cu câmp.
+
+/** Doar căi din aplicație („/…”); „//evil.ro” sau „https://…” ar trimite utilizatorul pe alt site după autentificare. */
+export function safeNext(next: string | null): string | null {
+  return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : null;
+}
 
 export function LoginPage() {
   const { login } = useAuth();
   const { notify } = useToast();
   const nav = useNavigate();
+  const next = safeNext(useSearchParams()[0].get('next'));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -24,7 +30,7 @@ export function LoginPage() {
     try {
       const u = await login(email, password);
       notify('ok', `Bine ai revenit, ${u.name}.`);
-      nav(u.role === 'ORGANIZER' ? '/organizator' : '/');
+      nav(next ?? (u.role === 'ORGANIZER' ? '/organizator' : '/'), { replace: !!next });
     } catch (err) {
       const r = formError(err);
       setError(r.message);

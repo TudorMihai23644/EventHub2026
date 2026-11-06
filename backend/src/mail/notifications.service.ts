@@ -21,7 +21,8 @@ export class Notifications {
     const participant = await this.user(m, d.userId);
     const organizer = await this.user(m, d.event.organizerId);
     const event = info(d.event);
-    await this.enqueue(m, 'registration-confirmed', participant, T.registrationConfirmed(this.cfg, { name: participant.name, event }));
+    const ticket = (await m.findOne(Registration, { where: { userId: d.userId, eventId: d.event.id } }))?.ticketCode ?? null;
+    await this.enqueue(m, 'registration-confirmed', participant, T.registrationConfirmed(this.cfg, { name: participant.name, event, ticket }));
     await this.enqueue(m, 'organizer-registration', organizer, T.organizerNewRegistration(this.cfg, {
       organizerName: organizer.name, participantName: participant.name, event, taken: d.taken, capacity: d.event.capacity,
     }));
@@ -70,9 +71,9 @@ export class Notifications {
   }
 
   /** Memento-ul de cu o zi înainte (trimis de RemindersService). */
-  async reminder(m: EntityManager, d: { user: Pick<User, 'name' | 'email'>; event: Event; hasWaitlist: boolean; now: Date }) {
+  async reminder(m: EntityManager, d: { user: Pick<User, 'name' | 'email'>; event: Event; hasWaitlist: boolean; now: Date; ticket?: string }) {
     await this.enqueue(m, 'event-reminder', d.user, T.eventReminder(this.cfg, {
-      name: d.user.name, event: info(d.event), hasWaitlist: d.hasWaitlist, now: d.now,
+      name: d.user.name, event: info(d.event), hasWaitlist: d.hasWaitlist, now: d.now, ticket: d.ticket,
     }));
   }
 
@@ -88,7 +89,8 @@ export class Notifications {
     const participant = await this.user(m, d.userId);
     const organizer = await this.user(m, d.event.organizerId);
     const event = info(d.event);
-    await this.enqueue(m, 'waitlist-promoted', participant, T.waitlistPromoted(this.cfg, { name: participant.name, event }));
+    const ticket = (await m.findOne(Registration, { where: { userId: d.userId, eventId: d.event.id } }))?.ticketCode ?? null;
+    await this.enqueue(m, 'waitlist-promoted', participant, T.waitlistPromoted(this.cfg, { name: participant.name, event, ticket }));
     await this.enqueue(m, 'organizer-registration', organizer, T.organizerNewRegistration(this.cfg, {
       organizerName: organizer.name, participantName: participant.name, event,
       taken: d.taken, capacity: d.event.capacity, fromWaitlist: true,

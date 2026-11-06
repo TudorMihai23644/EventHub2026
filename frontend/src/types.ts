@@ -53,6 +53,19 @@ export interface EventItem {
   canLeaveWaitlist: boolean;
   /** Doar la detaliile unui eveniment (GET /events/:id): link Google Calendar și calea fișierului .ics. */
   calendar?: { google: string; icsPath: string };
+  /** Biletul participantului înscris (codul din QR); null pentru ceilalți. */
+  ticket: { code: string; display: string; checkedInAt: string | null } | null;
+  /** Doar pentru organizatorul evenimentului: fereastra de validare a biletelor. */
+  checkIn: { opens: string; closes: string; canScan: boolean; canMarkAttendance: boolean } | null;
+}
+
+/** POST /check-in */
+export interface CheckInResponse {
+  result: 'CHECKED_IN' | 'ALREADY_CHECKED_IN';
+  checkedInAt: string;
+  ticket: string;
+  participant: { name: string };
+  event: { id: string; title: string };
 }
 
 /** O listă de așteptare a participantului (GET /waitlist/me). */
@@ -99,6 +112,8 @@ export interface RegistrationItem {
 export interface Attendee {
   id: string;
   registeredAt: string;
+  /** Când a fost validat biletul la intrare (scanare sau marcare manuală); null = nu a venit (încă). */
+  checkedInAt: string | null;
   user: { id: string; name: string; email: string };
 }
 
@@ -110,6 +125,10 @@ export interface EventStats {
   waiting: number;
   availableSeats: number;
   occupancyPercent: number;
+  checkedIn: number;
+  /** null înainte de începerea evenimentului. */
+  noShow: number | null;
+  noShowPercent: number | null;
   byDay: { date: string; count: number; cumulative: number }[];
 }
 

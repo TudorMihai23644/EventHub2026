@@ -7,6 +7,7 @@ import { EventItem } from '../types';
 import { DateTile, Loading, errMsg, fmtWhen, seatsLabel, useToast } from '../ui';
 import { ResendVerificationButton } from './VerifyEmailPage';
 import { API_URL } from '../config';
+import TicketCard from '../TicketCard';
 
 export default function EventDetailPage() {
   const { id } = useParams();
@@ -74,6 +75,8 @@ export default function EventDetailPage() {
         </div>
       </div>
 
+      {ev.ticket && <TicketCard ticket={ev.ticket} title={ev.title} />}
+
       <p className="desc">{ev.description}</p>
 
       <div className="panel">
@@ -123,6 +126,7 @@ export default function EventDetailPage() {
           </>
         )}
         {ev.canEdit && <Link className="btn" to={`/organizator/${ev.id}/editare`}>Editează evenimentul</Link>}
+        {ev.checkIn?.canScan && <Link className="btn ghost" to="/check-in">Validează bilete</Link>}
       </div>
 
       {ev.calendar && ev.status !== 'PAST' && (

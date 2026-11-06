@@ -23,8 +23,10 @@ export const ROUTES = {
     past: 'past',
     attendeesCsv: ':id/registrations.csv',
     stats: ':id/stats',
+    attendance: ':id/attendance/:registrationId',
   },
   registrations: { base: 'registrations', mine: 'me' },
   waitlist: { base: 'waitlist', mine: 'me' },
   account: { base: 'account', password: 'password' },
+  checkin: { scan: 'check-in' },
 } as const;

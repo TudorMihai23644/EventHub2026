@@ -179,8 +179,8 @@ describe('Profil, instrumente organizator, ștergerea contului (integrare)', () 
       const { csv } = await events.attendeesCsv(org.user.id, e.id, 'Europe/Bucharest');
       const lines = csv.replace('﻿', '').trim().split('\r\n');
       expect(csv.startsWith('﻿')).toBe(true);
-      expect(lines[0]).toBe('Nr.;Nume;Email;Status;Data');
-      expect(lines[1]).toBe(`1;"'=HYPERLINK(""x"")";${a.user.email};Înscris;2026-12-01 19:00`);
+      expect(lines[0]).toBe('Nr.;Nume;Email;Status;Data;Prezent');
+      expect(lines[1]).toBe(`1;"'=HYPERLINK(""x"")";${a.user.email};Înscris;2026-12-01 19:00;Nu`);
       expect(lines[2]).toMatch(new RegExp(`^2;U\\d+;${b.user.email};Pe lista de așteptare \\(locul 1\\);`));
       const other = await signUp('ORGANIZER');
       await expect(events.attendeesCsv(other.user.id, e.id, 'Europe/Bucharest')).rejects.toThrow('Doar organizatorul');

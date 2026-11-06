@@ -2,6 +2,8 @@ import { Event } from './event.entity';
 import { AuthUser } from '../auth/roles';
 import { categoryLabel, placeLabel } from './categories';
 import { coverView } from '../images/cover.service';
+import { formatTicketCode } from '../registrations/ticket-code';
+import { checkInWindow } from '../registrations/checkin-window';
 
 /** ONGOING: a început, dar nu s-a terminat (are oră de sfârșit). Pentru reguli contează tot `isPast` (= a început). */
 export type EventStatus = 'OPEN' | 'FULL' | 'ONGOING' | 'PAST';
@@ -10,7 +12,10 @@ export type EventStatus = 'OPEN' | 'FULL' | 'ONGOING' | 'PAST';
  * Toată starea derivată pe care o afișează frontend-ul se calculează aici.
  * `waitlistPosition`: locul utilizatorului pe lista de așteptare (1 = următorul), sau null.
  */
-export function buildEventView(e: Event, viewer?: AuthUser, registered = false, now = Date.now(), waitlistPosition: number | null = null) {
+export function buildEventView(
+  e: Event, viewer?: AuthUser, registered = false, now = Date.now(), waitlistPosition: number | null = null,
+  ticket: { code: string; checkedInAt: Date | null } | null = null,
+) {
   const registeredCount = e.registeredCount ?? 0;
   const waitlistCount = e.waitlistCount ?? 0;
   const availableSeats = Math.max(0, e.capacity - registeredCount);
@@ -55,5 +60,16 @@ export function buildEventView(e: Event, viewer?: AuthUser, registered = false, 
     waitlistPosition: isWaitlisted ? waitlistPosition : null,
     canJoinWaitlist: couldWait && verified,
     canLeaveWaitlist: isWaitlisted && !isPast,
+    // biletul: doar pentru participantul înscris (codul îl validează organizatorul la intrare)
+    ticket: isParticipant && registered && ticket
+      ? { code: ticket.code, display: formatTicketCode(ticket.code), checkedInAt: ticket.checkedInAt }
+      : null,
+    // validarea la intrare, pentru organizator: scanare doar în fereastră; marcare manuală și după (corecturi)
+    checkIn: isOwner ? checkInFlags(e, now) : null,
   };
+}
+
+function checkInFlags(e: Event, now: number) {
+  const { opens, closes } = checkInWindow(e);
+  return { opens, closes, canScan: now >= opens.getTime() && now <= closes.getTime(), canMarkAttendance: now >= opens.getTime() };
 }

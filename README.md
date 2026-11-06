@@ -88,7 +88,9 @@ Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt def
 | POST | `/auth/email/resend` | autentificat | 202 cu un link nou (cel vechi se anulează); 400 dacă adresa e deja confirmată; 5/oră per IP |
 | GET | `/events/past?search=&category=&page=&limit=` | public | arhiva: evenimentele care au început, cele mai recente întâi |
 | GET | `/events/:id/registrations.csv` | organizator proprietar | CSV (Excel): înscrișii, apoi lista de așteptare |
-| GET | `/events/:id/stats` | organizator proprietar | ocupare, lista de așteptare, înscrieri pe zile |
+| GET | `/events/:id/stats` | organizator proprietar | ocupare, lista de așteptare, înscrieri pe zile, prezenți și absenți (`noShow` e null înainte de început) |
+| POST | `/check-in` | organizator | `{ code }` → 200 `{ result: CHECKED_IN \| ALREADY_CHECKED_IN, checkedInAt, participant: { name }, event }`; 404 cod necunoscut sau al altui organizator; 400 cod invalid sau în afara ferestrei |
+| PUT | `/events/:id/attendance/:registrationId` | organizator proprietar | `{ present: boolean }` → `{ id, checkedInAt }`; de la deschiderea ferestrei, și după eveniment (corecturi) |
 | PATCH | `/account` | autentificat | `{ name }` |
 | POST | `/account/password` | autentificat + antet `X-EventHub-Client` | `{ currentPassword, newPassword }` → sesiune nouă pentru acest dispozitiv, celelalte închise |
 | DELETE | `/account` | autentificat + antet `X-EventHub-Client` | `{ password }` → 204; vezi „Contul meu” |
@@ -115,7 +117,7 @@ Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt def
 
 **Toată logica este în API.** Frontend-ul doar afișează răspunsurile. Evenimentele vin cu starea calculată pe server
 (`status`: OPEN/FULL/PAST, `isRegistered`, `canRegister`, `mustVerifyEmail`, `canCancel`, `canEdit`, `occupancyPercent`,
-`waitlistCount`, `isWaitlisted`, `waitlistPosition`, `canJoinWaitlist`, `canLeaveWaitlist`), iar erorile de validare
+`waitlistCount`, `isWaitlisted`, `waitlistPosition`, `canJoinWaitlist`, `canLeaveWaitlist`, `ticket`, `checkIn`), iar erorile de validare
 vin ca `{ message, fields: { câmp: mesaj } }` și se afișează lângă fiecare câmp. Rutele `GET /events` și `GET /events/:id`
 sunt publice, dar adaptează răspunsul dacă cererea are token.
 
@@ -159,6 +161,17 @@ sunt publice, dar adaptează răspunsul dacă cererea are token.
 - **Statistici** pe eveniment: înscriși, locuri libere, în așteptare, ocupare și înscrierile pe zile (bare simple). Înscrierile anulate nu mai
   există în baza de date, deci seria arată înscrierile actuale după ziua în care s-au făcut.
 - **Arhivă publică** la `/evenimente-trecute`.
+
+## Bilete și validare la intrare
+
+- Fiecare înscriere are un **cod de bilet** de 10 caractere (ex. `7KQ2M-9XH4T`), generat de PostgreSQL (`eventhub_ticket_code()`, 50 de biți
+  aleatori). Participantul îl vede ca **QR** pe pagina evenimentului (generat în browser) și ca text în emailurile de confirmare și memento.
+- QR-ul conține linkul `/check-in/COD`. Organizatorul îl scanează cu **camera telefonului**; pagina validează imediat și arată verdictul
+  (valid / deja validat la ora X / respins). Codul se poate și tasta; literele mici, spațiile, cratimele și `O`/`I`/`L` sunt acceptate.
+- **Fereastra**: de cu 3 ore înainte de început până la 6 ore după sfârșit (fără oră de sfârșit: 12 ore după început).
+- **O singură validare**: două scanări simultane ale aceluiași bilet dau un „valid” și un „deja validat” (un singur `UPDATE … WHERE "checkedInAt" IS NULL`).
+- Biletul altui organizator răspunde ca un cod inexistent. Răspunsul scanării conține doar numele participantului, nu și emailul.
+- În „Evenimentele mele”, lista înscrișilor are bife „prezent” pentru marcarea manuală; CSV-ul are coloana `Prezent`.
 
 ## Contul meu (`/cont`)
 

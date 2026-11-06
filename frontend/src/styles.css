@@ -175,3 +175,34 @@ h2 .pill { vertical-align: middle; }
 .card { border: 1px solid var(--line); border-radius: .85rem; background: #050505; padding: 1.25rem; }
 .card h2 { margin-bottom: .25rem; }
 .danger-zone { border-color: rgba(255, 16, 48, .45); }
+
+/* ---------- bilet și validare la intrare ---------- */
+.ticket { margin-top: 1.75rem; display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; padding: 1.25rem; border: 1px solid rgba(255, 16, 48, .45); border-radius: 1rem; background: linear-gradient(135deg, rgba(255, 16, 48, .08), rgba(255, 255, 255, .02)); }
+.ticket-qr { flex: none; background: #fff; border-radius: .6rem; padding: .35rem; line-height: 0; }
+.ticket-qr img, .qr-placeholder { width: 11rem; height: 11rem; display: block; }
+.ticket-info { display: grid; gap: .25rem; min-width: 0; }
+.ticket-info .tag { margin: 0; }
+.ticket-title { color: var(--text); font-size: 1.1rem; }
+.ticket-code { font: 700 1.6rem/1.2 ui-monospace, 'Cascadia Mono', Consolas, monospace; letter-spacing: .12em; color: var(--text); margin: .25rem 0; }
+.ok-text { color: var(--ok); margin: 0; }
+.pill.ok { color: var(--ok); border-color: rgba(46, 229, 157, .5); background: rgba(46, 229, 157, .08); }
+.attendees li.present { color: var(--text); }
+.attendees input[type=checkbox] { margin-right: .5rem; vertical-align: -.15rem; }
+
+.checkin { max-width: 32rem; display: grid; gap: 1.25rem; }
+.checkin h1 { margin-bottom: 0; }
+.checkin-result { min-height: 7rem; display: grid; align-items: center; }
+.verdict { display: flex; gap: 1rem; align-items: center; padding: 1.25rem; border-radius: 1rem; border: 1.5px solid; }
+.verdict p { margin: .15rem 0 0; }
+.verdict strong { font: 700 1.35rem/1.2 var(--display); color: var(--text); }
+.verdict-mark { flex: none; width: 3.2rem; height: 3.2rem; border-radius: 50%; display: grid; place-items: center; font: 800 1.8rem/1 var(--sans); color: #000; }
+.verdict-name { font-size: 1.15rem; color: var(--text); }
+.verdict.good { border-color: rgba(46, 229, 157, .6); background: rgba(46, 229, 157, .08); }
+.verdict.good .verdict-mark { background: var(--ok); }
+.verdict.warn { border-color: rgba(255, 184, 0, .6); background: rgba(255, 184, 0, .08); }
+.verdict.warn .verdict-mark { background: #ffb800; }
+.verdict.bad { border-color: rgba(255, 16, 48, .6); background: rgba(255, 16, 48, .1); }
+.verdict.bad .verdict-mark { background: var(--red); }
+.checkin-form { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; }
+.checkin-form label { display: grid; gap: .35rem; flex: 1 1 12rem; font-weight: 700; color: var(--text); }
+.checkin-form input { font: 700 1.15rem ui-monospace, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }

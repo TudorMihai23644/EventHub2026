@@ -57,6 +57,15 @@ export default function DashboardPage() {
     } catch (err) { notify('err', errMsg(err)); }
   }
 
+  /** Marcare manuală (ex. participant fără telefon); se poate corecta și după eveniment. */
+  async function markAttendance(e: EventItem, a: Attendee, present: boolean) {
+    try {
+      const res = await api<{ id: string; checkedInAt: string | null }>(ENDPOINTS.events.attendance(e.id, a.id), { method: 'PUT', body: { present } });
+      setAttendees((all) => ({ ...all, [e.id]: all[e.id].map((x) => (x.id === a.id ? { ...x, checkedInAt: res.checkedInAt } : x)) }));
+      if (stats[e.id]) setStats((s) => { const next = { ...s }; delete next[e.id]; return next; }); // cifrele s-au schimbat
+    } catch (err) { notify('err', errMsg(err)); }
+  }
+
   async function exportCsv(e: EventItem) {
     try { await apiDownload(ENDPOINTS.events.attendeesCsv(e.id), 'participanti.csv'); }
     catch (err) { notify('err', errMsg(err)); }
@@ -110,7 +119,16 @@ export default function DashboardPage() {
                 attendees[e.id].length === 0
                   ? <p className="muted small">Încă nu există înscriși.</p>
                   : <ul className="attendees">
-                      {attendees[e.id].map((a) => <li key={a.id}>{a.user.name} <span className="muted">({a.user.email})</span></li>)}
+                      {attendees[e.id].map((a) => (
+                        <li key={a.id} className={a.checkedInAt ? 'present' : undefined}>
+                          {e.checkIn?.canMarkAttendance && (
+                            <input type="checkbox" checked={!!a.checkedInAt} onChange={(ch) => markAttendance(e, a, ch.target.checked)}
+                              aria-label={`${a.user.name} este prezent`} />
+                          )}
+                          {a.user.name} <span className="muted">({a.user.email})</span>
+                          {a.checkedInAt && <span className="pill ok">prezent {new Date(a.checkedInAt).toLocaleTimeString('ro-RO', { timeStyle: 'short' })}</span>}
+                        </li>
+                      ))}
                     </ul>
               )}
               {stats[e.id] && <StatsPanel s={stats[e.id]} />}
@@ -124,6 +142,7 @@ export default function DashboardPage() {
               )}
             </div>
             <div className="actions">
+              {e.checkIn?.canScan && <Link className="btn" to="/check-in">Validează bilete</Link>}
               <button className="btn ghost" onClick={() => toggleAttendees(e)}>{attendees[e.id] ? 'Ascunde înscrișii' : 'Vezi înscrișii'}</button>
               <button className="btn ghost" onClick={() => toggleStats(e)}>{stats[e.id] ? 'Ascunde statisticile' : 'Statistici'}</button>
               <button className="btn ghost" onClick={() => exportCsv(e)} title="Înscrișii și lista de așteptare, pentru Excel">Export CSV</button>
@@ -151,6 +170,8 @@ function StatsPanel({ s }: { s: EventStats }) {
         <div><strong>{s.availableSeats}</strong><span>locuri libere</span></div>
         <div><strong>{s.waiting}</strong><span>în așteptare</span></div>
         <div><strong>{s.occupancyPercent}%</strong><span>ocupare</span></div>
+        {s.noShow !== null && <div><strong>{s.checkedIn}</strong><span>prezenți</span></div>}
+        {s.noShow !== null && <div><strong>{s.noShowPercent ?? 0}%</strong><span>absenți ({s.noShow})</span></div>}
       </div>
       {s.byDay.length === 0
         ? <p className="muted small">Încă nu există înscrieri.</p>

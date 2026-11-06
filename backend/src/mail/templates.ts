@@ -1,6 +1,7 @@
 import { MailConfig } from './mail.config';
 import { googleCalendarUrl, icsPath } from '../events/calendar';
 import { placeLabel } from '../events/categories';
+import { formatTicketCode } from '../registrations/ticket-code';
 
 // Conținutul emailurilor: funcții pure, fără bază de date, ușor de testat.
 // Tot ce scrie un utilizator (titlu, locație, nume) trece prin escapeHtml.
@@ -127,26 +128,30 @@ export function reminderWhen(start: Date, now: Date, timeZone: string): 'Începe
 
 // ---------- pentru participanți ----------
 
-export function registrationConfirmed(cfg: Cfg, d: { name: string; event: EventInfo }): EmailContent {
+/** Codul biletului și cum se folosește (doar în emailurile către cei înscriși). */
+const ticketFacts = (ticket?: string | null): [string, string][] => (ticket ? [['Bilet', formatTicketCode(ticket)]] : []);
+const TICKET_HINT = 'La intrare arată codul QR din pagina evenimentului (sau spune codul biletului).';
+
+export function registrationConfirmed(cfg: Cfg, d: { name: string; event: EventInfo; ticket?: string | null }): EmailContent {
   return render(cfg, `Te-ai înscris la „${d.event.title}”`, {
     heading: `Te-ai înscris la „${d.event.title}”`,
-    lines: [`Bună, ${d.name}! Înscrierea ta a fost confirmată.`],
-    facts: eventFacts(cfg, d.event, { withLink: true }),
+    lines: [`Bună, ${d.name}! Înscrierea ta a fost confirmată.`, ...(d.ticket ? [TICKET_HINT] : [])],
+    facts: [...eventFacts(cfg, d.event, { withLink: true }), ...ticketFacts(d.ticket)],
     button: { label: 'Vezi evenimentul', url: eventUrl(cfg, d.event.id) },
     links: calendarLinks(cfg, d.event),
   });
 }
 
 /** Memento-ul de cu o zi înainte. `hasWaitlist`: îndemnul la anulare spune că locul ajunge la cineva care așteaptă. */
-export function eventReminder(cfg: Cfg, d: { name: string; event: EventInfo; hasWaitlist: boolean; now?: Date }): EmailContent {
+export function eventReminder(cfg: Cfg, d: { name: string; event: EventInfo; hasWaitlist: boolean; now?: Date; ticket?: string | null }): EmailContent {
   const when = reminderWhen(d.event.startsAt, d.now ?? new Date(), cfg.timeZone);
   const cancelHint = d.hasWaitlist
     ? 'Dacă nu mai poți veni, anulează înscrierea din pagina evenimentului: locul ajunge imediat la primul de pe lista de așteptare.'
     : 'Dacă nu mai poți veni, anulează înscrierea din pagina evenimentului, ca locul să rămână liber pentru altcineva.';
   return render(cfg, `${when}: „${d.event.title}”`, {
     heading: `${when}: „${d.event.title}”`,
-    lines: [`Bună, ${d.name}! Îți amintim de evenimentul la care ești înscris.`, cancelHint],
-    facts: eventFacts(cfg, d.event, { withLink: true }),
+    lines: [`Bună, ${d.name}! Îți amintim de evenimentul la care ești înscris.`, ...(d.ticket ? [TICKET_HINT] : []), cancelHint],
+    facts: [...eventFacts(cfg, d.event, { withLink: true }), ...ticketFacts(d.ticket)],
     button: { label: 'Vezi evenimentul', url: eventUrl(cfg, d.event.id) },
     links: calendarLinks(cfg, d.event),
   });
@@ -217,14 +222,15 @@ export function waitlistJoined(cfg: Cfg, d: { name: string; event: EventInfo; po
   });
 }
 
-export function waitlistPromoted(cfg: Cfg, d: { name: string; event: EventInfo }): EmailContent {
+export function waitlistPromoted(cfg: Cfg, d: { name: string; event: EventInfo; ticket?: string | null }): EmailContent {
   return render(cfg, `Ai primit un loc la „${d.event.title}”`, {
     heading: 'Ai primit un loc!',
     lines: [
       `Bună, ${d.name}! S-a eliberat un loc la „${d.event.title}”, iar tu erai primul pe lista de așteptare: acum ești înscris.`,
       'Dacă nu mai poți veni, anulează înscrierea din pagina evenimentului, ca locul să ajungă la următoarea persoană.',
+      ...(d.ticket ? [TICKET_HINT] : []),
     ],
-    facts: eventFacts(cfg, d.event, { withLink: true }),
+    facts: [...eventFacts(cfg, d.event, { withLink: true }), ...ticketFacts(d.ticket)],
     button: { label: 'Vezi evenimentul', url: eventUrl(cfg, d.event.id) },
     links: calendarLinks(cfg, d.event),
   });

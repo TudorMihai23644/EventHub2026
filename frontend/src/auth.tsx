@@ -1,5 +1,5 @@
 import { ReactNode, createContext, useContext, useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { Session, api, hasSession, onSessionChange, refreshSession, setSession } from './api';
 import { ENDPOINTS } from './endpoints';
 import { Role, User } from './types';
@@ -87,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export function RequireRole({ role, children }: { role: Role; children: JSX.Element }) {
   const { user, ready } = useAuth();
   if (!ready) return <Loading />;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <ToLogin />;
   if (user.role !== role) return <Navigate to="/" replace />;
   return children;
 }
@@ -96,6 +96,12 @@ export function RequireRole({ role, children }: { role: Role; children: JSX.Elem
 export function RequireUser({ children }: { children: JSX.Element }) {
   const { user, ready } = useAuth();
   if (!ready) return <Loading />;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <ToLogin />;
   return children;
+}
+
+/** Spre autentificare, cu întoarcere pe pagina cerută (ex. un link de validare scanat). */
+function ToLogin() {
+  const { pathname, search } = useLocation();
+  return <Navigate to={`/login?next=${encodeURIComponent(pathname + search)}`} replace />;
 }
