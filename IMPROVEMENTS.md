@@ -1255,7 +1255,7 @@ Sources: [Cloudinary pricing](https://cloudinary.com/pricing), [Cloudinary billi
 
 ### Results
 
-**Full `docker compose up --build`: not yet verified locally.** The first attempt (2026-11-06) was stopped by the system because the machine had 0.5 GB of 5.8 GB RAM free; it never got past building images. The CI `compose` job runs the same check on the first push.
+**Full `docker compose up --build`: verified in CI** (first run, [42197423798](https://github.com/TudorMihai23644/eventhub/actions/runs/42197423798), all three jobs green). Images built, migrations ran, API healthy, SPA and deep link served, CSP header present. The local attempt had been stopped by the system: 0.5 GB of 5.8 GB RAM free.
 
 | Check | Result |
 |---|---|
