@@ -13,6 +13,7 @@ import EventFormPage from './pages/EventFormPage';
 import { ForgotPasswordPage, ResetPasswordPage } from './pages/PasswordPages';
 import VerifyEmailPage, { VerifyBanner } from './pages/VerifyEmailPage';
 import { useToast } from './ui';
+import ThemeToggle from './ThemeToggle';
 
 // Sigla EventHub, redesenată vectorial (rămâne clară la orice rezoluție, inclusiv 4K).
 function LogoMark() {
@@ -49,6 +50,7 @@ function Navbar() {
               <NavLink to="/register" className="cta">Creează cont</NavLink>
             </>
           )}
+          <ThemeToggle />
         </nav>
       </div>
     </header>

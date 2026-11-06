@@ -415,6 +415,11 @@ peste o lumină roșie difuză și o granulație fină; listele rămân plate, c
 `frontend/src/styles.css`, cu variabile la început. Fără `backdrop-filter` sau cu „transparență redusă” cerută de sistem, sticla devine
 o suprafață opacă; cu „mișcare redusă”, nicio animație.
 
+**Tema deschisă:** butonul cu soare / lună din antet comută între cele două teme; alegerea se ține minte în browser, iar la prima
+vizită se folosește tema sistemului. Aceleași roluri de culoare, alte valori (`:root[data-theme='light']` în `styles.css`): alb cald,
+același roșu un pic mai adânc pentru contrast, sticlă albă mată, hartă cu plăcile OSM normale. Tema se aplică înainte de prima
+afișare de `public/theme-init.js` (fișier separat: CSP-ul nu permite scripturi inline), deci pagina nu „clipește” în tema greșită.
+
 | Evenimente | Eveniment | Autentificare | Telefon |
 |---|---|---|---|
 | ![Lista de evenimente](docs/design/evenimente.webp) | ![Pagina unui eveniment cu plată și hartă](docs/design/eveniment.webp) | ![Formularul de autentificare](docs/design/autentificare.webp) | ![Pagina evenimentului pe telefon](docs/design/telefon-eveniment.webp) |

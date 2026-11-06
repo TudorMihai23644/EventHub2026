@@ -30,6 +30,24 @@
   --glass-edge: inset 0 1px 0 rgba(255, 255, 255, .07);
   --glass-shadow: 0 1.5rem 3rem -1.5rem rgba(0, 0, 0, .85);
   --blur: blur(22px) saturate(160%);
+  /* ce diferă între teme, în afară de paletă */
+  --tint-rgb: 255, 255, 255; /* nuanța suprafețelor discrete (hover, fundaluri subțiri) */
+  --bar-bg: rgba(5, 5, 6, .62);
+  --field-bg: rgba(0, 0, 0, .35);
+  --field-bg-focus: rgba(0, 0, 0, .5);
+  --alert-err-text: #ffc2c8;
+  --alert-ok-text: #b8f5d9;
+  --shadow-deep: rgba(0, 0, 0, .9);
+  --scrollbar: #2a2a30;
+  --heading-hover: #fff;
+  --bloom-1: rgba(255, 45, 64, .24);
+  --bloom-2: rgba(255, 45, 64, .07);
+  --bloom-3: rgba(255, 45, 64, .09);
+  --grain: .035;
+  --map-filter: invert(1) hue-rotate(180deg) brightness(.82) contrast(.92) saturate(.25);
+  --map-ctrl-bg: rgba(10, 10, 12, .85);
+  --map-attr-bg: rgba(5, 5, 6, .72);
+  --pin-ring: #050506;
   /* formă */
   --r-sm: .55rem;
   --r: .9rem;
@@ -41,6 +59,51 @@
   accent-color: var(--red);
 }
 
+/*
+ * Tema deschisă („hârtie”): alb cald în loc de negru, același roșu un pic mai adânc (contrast pe alb), sticla devine
+ * albă mată. Se activează cu <html data-theme="light"> (butonul din antet; vezi public/theme-init.js).
+ */
+:root[data-theme='light'] {
+  --bg: #f5f4f1;
+  --ink-1: #ffffff;
+  --ink-2: #ebe9e5;
+  --hair: rgba(0, 0, 0, .08);
+  --hair-strong: rgba(0, 0, 0, .15);
+  --text: #121214;
+  --body: #3b3b41;
+  --muted: #6c6c75;
+  --faint: #9b9ba3;
+  --red: #e3162b;
+  --red-press: #c40f21;
+  --red-text: #c8122a;
+  --red-soft: rgba(227, 22, 43, .1);
+  --red-line: rgba(227, 22, 43, .35);
+  --ok: #0c9a5f;
+  --warn: #b97400;
+  --glass: linear-gradient(180deg, rgba(255, 255, 255, .8), rgba(255, 255, 255, .55));
+  --glass-solid: #ffffff;
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, .95);
+  --glass-shadow: 0 1.5rem 3rem -1.5rem rgba(40, 12, 16, .16);
+  --tint-rgb: 0, 0, 0;
+  --bar-bg: rgba(245, 244, 241, .72);
+  --field-bg: rgba(255, 255, 255, .75);
+  --field-bg-focus: #ffffff;
+  --alert-err-text: #9a0e1d;
+  --alert-ok-text: #0a6a42;
+  --shadow-deep: rgba(40, 12, 16, .22);
+  --scrollbar: #cbc9c4;
+  --heading-hover: #000;
+  --bloom-1: rgba(255, 45, 64, .16);
+  --bloom-2: rgba(255, 45, 64, .05);
+  --bloom-3: rgba(255, 45, 64, .07);
+  --grain: .05;
+  --map-filter: saturate(.55) contrast(.95);
+  --map-ctrl-bg: rgba(255, 255, 255, .92);
+  --map-attr-bg: rgba(255, 255, 255, .8);
+  --pin-ring: #ffffff;
+  color-scheme: light;
+}
+
 /* Tot layout-ul e în rem: pe ecrane mari (QHD, 4K) interfața crește proporțional și rămâne clară. */
 html { font-size: 16px; }
 @media (min-width: 1920px) { html { font-size: 18px; } }
@@ -49,7 +112,7 @@ html { font-size: 16px; }
 @media (min-width: 3840px) { html { font-size: 30px; } }
 
 * { box-sizing: border-box; }
-html { scrollbar-color: #2a2a30 var(--bg); scrollbar-width: thin; }
+html { scrollbar-color: var(--scrollbar) var(--bg); scrollbar-width: thin; }
 body {
   margin: 0; min-height: 100vh; background: var(--bg); color: var(--body);
   font: 400 1rem/1.6 var(--sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
@@ -58,14 +121,14 @@ body {
 body::before {
   content: ''; position: fixed; inset: 0; z-index: -2; pointer-events: none;
   background:
-    radial-gradient(56rem 34rem at 88% -6%, rgba(255, 45, 64, .24), transparent 64%),
-    radial-gradient(34rem 26rem at 62% 34%, rgba(255, 45, 64, .07), transparent 70%),
-    radial-gradient(44rem 30rem at -8% 106%, rgba(255, 45, 64, .09), transparent 62%),
-    radial-gradient(30rem 20rem at 30% 20%, rgba(255, 255, 255, .02), transparent 70%);
+    radial-gradient(56rem 34rem at 88% -6%, var(--bloom-1), transparent 64%),
+    radial-gradient(34rem 26rem at 62% 34%, var(--bloom-2), transparent 70%),
+    radial-gradient(44rem 30rem at -8% 106%, var(--bloom-3), transparent 62%),
+    radial-gradient(30rem 20rem at 30% 20%, rgba(var(--tint-rgb), .02), transparent 70%);
 }
 /* granulație fină: dă textură sticlei și negrului (SVG generat, 3% opacitate) */
 body::after {
-  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .035;
+  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: var(--grain);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 ::selection { background: var(--red); color: #fff; }
@@ -92,7 +155,7 @@ a { color: var(--red-text); text-underline-offset: .2em; }
 }
 
 /* ---------- antet ---------- */
-.bar { position: sticky; top: 0; z-index: 5; border-width: 0 0 1px; border-radius: 0; box-shadow: var(--glass-edge); background: rgba(5, 5, 6, .62); }
+.bar { position: sticky; top: 0; z-index: 5; border-width: 0 0 1px; border-radius: 0; box-shadow: var(--glass-edge); background: var(--bar-bg); }
 .bar-in { max-width: 64rem; margin: 0 auto; padding: .85rem 1.5rem; display: flex; gap: 1rem 1.75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .logo { display: flex; align-items: center; gap: .6rem; color: var(--text); text-decoration: none; font: 600 1.05rem var(--display); letter-spacing: -.02em; }
 .logo-mark { display: block; width: 1.8rem; height: 1.65rem; fill: var(--red); }
@@ -112,12 +175,12 @@ label { display: flex; flex-direction: column; gap: .45rem; font-weight: 600; fo
 label.check { flex-direction: row; align-items: center; gap: .65rem; font-weight: 400; color: var(--body); }
 input, select, textarea {
   font: 400 1rem var(--sans); padding: .72rem .9rem; color: var(--text);
-  background: rgba(0, 0, 0, .35); border: 1px solid var(--hair-strong); border-radius: var(--r-sm);
+  background: var(--field-bg); border: 1px solid var(--hair-strong); border-radius: var(--r-sm);
   transition: border-color .15s, box-shadow .15s, background .15s;
 }
-input:hover, select:hover, textarea:hover { border-color: rgba(255, 255, 255, .22); }
+input:hover, select:hover, textarea:hover { border-color: rgba(var(--tint-rgb), .24); }
 input::placeholder, textarea::placeholder { color: var(--faint); }
-input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; border-color: var(--red); box-shadow: 0 0 0 3px var(--red-soft); background: rgba(0, 0, 0, .5); }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; border-color: var(--red); box-shadow: 0 0 0 3px var(--red-soft); background: var(--field-bg-focus); }
 input[type=checkbox], input[type=radio] { width: 1.1rem; height: 1.1rem; padding: 0; }
 select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 1.1rem) 52%, calc(100% - .8rem) 52%; background-size: .3rem .3rem; background-repeat: no-repeat; padding-right: 2.2rem; }
 textarea { resize: vertical; }
@@ -131,8 +194,8 @@ fieldset { border: 1px solid var(--hair); border-radius: var(--r-sm); padding: .
 legend { font-weight: 600; padding: 0 .4rem; color: var(--text); font-size: .9rem; }
 .field-err { color: var(--red-text); font-weight: 500; font-size: .86rem; }
 .alert { padding: .85rem 1.05rem; border-radius: var(--r-sm); margin: 0; box-shadow: var(--glass-edge); }
-.alert.err { border-color: var(--red-line); background: linear-gradient(180deg, rgba(255, 45, 64, .12), rgba(255, 45, 64, .05)); color: #ffc2c8; }
-.alert.ok { border-color: rgba(61, 220, 151, .35); background: linear-gradient(180deg, rgba(61, 220, 151, .1), rgba(61, 220, 151, .03)); color: #b8f5d9; }
+.alert.err { border-color: var(--red-line); background: linear-gradient(180deg, rgba(255, 45, 64, .12), rgba(255, 45, 64, .05)); color: var(--alert-err-text); }
+.alert.ok { border-color: rgba(61, 220, 151, .35); background: linear-gradient(180deg, rgba(61, 220, 151, .1), rgba(61, 220, 151, .03)); color: var(--alert-ok-text); }
 
 /* banda „confirmă-ți adresa de email” */
 .verify-banner { max-width: 61rem; margin: 1rem auto 0; padding: .8rem 1.25rem; display: flex; gap: .5rem 1.25rem; align-items: center; justify-content: space-between; flex-wrap: wrap; border-radius: var(--r); border-color: var(--red-line); }
@@ -147,9 +210,9 @@ legend { font-weight: 600; padding: 0 .4rem; color: var(--text); font-size: .9re
 .list:empty { display: none; }
 .row { position: relative; display: flex; gap: 1.35rem; align-items: center; padding: 1.15rem 1rem; margin: 0 -1rem; text-decoration: none; color: inherit; border-radius: var(--r); transition: background .2s; }
 a.row::before { content: ''; position: absolute; left: 0; top: 1.1rem; bottom: 1.1rem; width: 2px; border-radius: 2px; background: var(--red); transform: scaleY(0); transition: transform .2s; }
-a.row:hover { background: rgba(255, 255, 255, .025); }
+a.row:hover { background: rgba(var(--tint-rgb), .025); }
 a.row:hover::before { transform: scaleY(1); }
-a.row:hover h2 { color: #fff; }
+a.row:hover h2 { color: var(--heading-hover); }
 .row.static { align-items: flex-start; }
 .row-body { flex: 1; min-width: 0; }
 .row h2 a { color: inherit; text-decoration: none; }
@@ -163,7 +226,7 @@ a.row:hover h2 { color: #fff; }
 .tile-month { font: 700 .72rem var(--sans); letter-spacing: .14em; text-transform: uppercase; color: var(--red-text); margin-top: .35rem; }
 
 /* etichete de stare: linie fină; „locuri libere” are un punct roșu */
-.pill { flex: none; display: inline-flex; align-items: center; gap: .45rem; font-size: .8rem; font-weight: 600; padding: .28rem .75rem; border-radius: 999px; color: var(--text); border: 1px solid var(--hair-strong); background: rgba(255, 255, 255, .03); margin-left: .5rem; white-space: nowrap; }
+.pill { flex: none; display: inline-flex; align-items: center; gap: .45rem; font-size: .8rem; font-weight: 600; padding: .28rem .75rem; border-radius: 999px; color: var(--text); border: 1px solid var(--hair-strong); background: rgba(var(--tint-rgb), .03); margin-left: .5rem; white-space: nowrap; }
 .pill::before { content: ''; width: .4rem; height: .4rem; border-radius: 50%; background: var(--red); box-shadow: 0 0 .5rem rgba(255, 45, 64, .7); }
 .pill.full { color: var(--muted); }
 .pill.full::before { background: var(--faint); box-shadow: none; }
@@ -171,7 +234,7 @@ a.row:hover h2 { color: #fff; }
 .pill.ok::before { background: var(--ok); box-shadow: none; }
 h2 .pill { vertical-align: middle; }
 
-.meter { height: 3px; background: rgba(255, 255, 255, .08); border-radius: 99px; overflow: hidden; margin-top: .85rem; max-width: 20rem; }
+.meter { height: 3px; background: rgba(var(--tint-rgb), .08); border-radius: 99px; overflow: hidden; margin-top: .85rem; max-width: 20rem; }
 .meter span { display: block; height: 100%; background: var(--red); border-radius: 99px; }
 .head-row { display: flex; justify-content: space-between; align-items: end; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem; }
 .head-row h1 { margin-bottom: .45rem; }
@@ -197,8 +260,8 @@ h2 .pill { vertical-align: middle; }
 .btn:active { transform: translateY(1px); background: var(--red-press); }
 .btn:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; transform: none; }
 /* secundar: sticlă cu linie fină */
-.btn.ghost { color: var(--text); background: rgba(255, 255, 255, .04); border-color: var(--hair-strong); box-shadow: var(--glass-edge); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
-.btn.ghost:hover { background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .24); }
+.btn.ghost { color: var(--text); background: rgba(var(--tint-rgb), .04); border-color: var(--hair-strong); box-shadow: var(--glass-edge); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.btn.ghost:hover { background: rgba(var(--tint-rgb), .08); border-color: rgba(var(--tint-rgb), .26); }
 .btn.danger { color: var(--red-text); background: transparent; border-color: var(--red-line); box-shadow: none; }
 .btn.danger:hover { background: var(--red-soft); }
 .btn.google { background: #fff; color: #1f1f1f; box-shadow: none; }
@@ -228,7 +291,7 @@ h2 .pill { vertical-align: middle; }
 
 /* coperta */
 .row-cover { flex: none; width: 8.5rem; aspect-ratio: 16 / 9; height: auto; object-fit: cover; border-radius: var(--r-sm); background: var(--ink-2); }
-.detail-cover { display: block; width: 100%; aspect-ratio: 16 / 9; height: auto; object-fit: cover; border-radius: var(--r-lg); margin-bottom: 2rem; background: var(--ink-2); box-shadow: 0 2rem 4rem -2rem rgba(0, 0, 0, .9); }
+.detail-cover { display: block; width: 100%; aspect-ratio: 16 / 9; height: auto; object-fit: cover; border-radius: var(--r-lg); margin-bottom: 2rem; background: var(--ink-2); box-shadow: 0 2rem 4rem -2rem var(--shadow-deep); }
 .cover-field { display: grid; gap: .6rem; justify-items: start; }
 .cover-label { font-weight: 600; font-size: .9rem; color: var(--text); }
 .cover-preview { width: 100%; max-width: 28rem; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--r-sm); border: 1px solid var(--hair); }
@@ -241,7 +304,7 @@ h2 .pill { vertical-align: middle; }
 .card { border-radius: var(--r-lg); padding: 1.5rem; }
 .card h2 { margin-bottom: .3rem; }
 .danger-zone { border-color: var(--red-line); }
-.stats { margin-top: 1rem; display: grid; gap: 1rem; padding: 1.1rem 1.2rem; border-radius: var(--r); border: 1px solid var(--hair); background: rgba(255, 255, 255, .02); }
+.stats { margin-top: 1rem; display: grid; gap: 1rem; padding: 1.1rem 1.2rem; border-radius: var(--r); border: 1px solid var(--hair); background: rgba(var(--tint-rgb), .02); }
 .stat-row { display: flex; flex-wrap: wrap; gap: .75rem 2rem; }
 .stat-row div { display: grid; }
 .stat-row strong { font: 600 1.45rem/1.1 var(--display); letter-spacing: -.03em; color: var(--text); }
@@ -255,7 +318,7 @@ h2 .pill { vertical-align: middle; }
 .ticket { position: relative; overflow: hidden; margin-top: 2rem; display: flex; gap: 1.75rem; align-items: center; flex-wrap: wrap; padding: 1.5rem; border-radius: var(--r-lg); border-color: rgba(255, 45, 64, .3); }
 /* o dungă roșie difuză pe marginea biletului: singurul „efect” al paginii */
 .ticket::before { content: ''; position: absolute; inset: -40% auto -40% -10%; width: 14rem; background: radial-gradient(closest-side, rgba(255, 45, 64, .28), transparent); pointer-events: none; }
-.ticket-qr { position: relative; flex: none; background: #fff; border-radius: var(--r); padding: .45rem; line-height: 0; box-shadow: 0 1rem 2rem -1rem rgba(0, 0, 0, .9); }
+.ticket-qr { position: relative; flex: none; background: #fff; border-radius: var(--r); padding: .45rem; line-height: 0; box-shadow: 0 1rem 2rem -1rem var(--shadow-deep); }
 .ticket-qr img, .qr-placeholder { width: 11rem; height: 11rem; display: block; }
 .ticket-info { position: relative; display: grid; gap: .3rem; min-width: 0; }
 .ticket-info .tag { margin: 0; }
@@ -286,12 +349,12 @@ h2 .pill { vertical-align: middle; }
 /* ---------- harta ---------- */
 .event-map { height: 18rem; border-radius: var(--r); border: 1px solid var(--hair); overflow: hidden; background: var(--ink-1); z-index: 0; }
 /* plăcile OSM sunt deschise: inversate, devin o hartă „de noapte” potrivită cu restul */
-.event-map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.82) contrast(.92) saturate(.25); }
-.event-map .leaflet-control-attribution { background: rgba(5, 5, 6, .72); color: var(--muted); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.event-map .leaflet-tile-pane { filter: var(--map-filter); }
+.event-map .leaflet-control-attribution { background: var(--map-attr-bg); color: var(--muted); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 .event-map .leaflet-control-attribution a { color: var(--body); }
 .event-map .leaflet-bar { border: 1px solid var(--hair-strong); box-shadow: none; }
-.event-map .leaflet-bar a { background: rgba(10, 10, 12, .85); color: var(--text); border-color: var(--hair); }
-.map-pin span { display: block; width: 26px; height: 26px; border-radius: 50%; background: var(--red); border: 3px solid #050506; box-shadow: 0 0 0 1.5px var(--red), 0 0 22px rgba(255, 45, 64, .65); }
+.event-map .leaflet-bar a { background: var(--map-ctrl-bg); color: var(--text); border-color: var(--hair); }
+.map-pin span { display: block; width: 26px; height: 26px; border-radius: 50%; background: var(--red); border: 3px solid var(--pin-ring); box-shadow: 0 0 0 1.5px var(--red), 0 0 22px rgba(255, 45, 64, .65); }
 
 /* ---------- autentificare: Google, separator, verificarea anti-robot ---------- */
 .or { display: flex; align-items: center; gap: .85rem; color: var(--faint); font-size: .78rem; letter-spacing: .12em; text-transform: uppercase; margin: 0; }
@@ -322,3 +385,9 @@ h2 .pill { vertical-align: middle; }
   .detail-head { align-items: flex-start; }
   .filters > label { flex: 1 1 100%; }
 }
+
+/* ---------- butonul de temă ---------- */
+.theme-toggle { display: inline-grid; place-items: center; width: 2.1rem; height: 2.1rem; padding: 0; border-radius: 50%; cursor: pointer;
+  color: var(--muted); background: rgba(var(--tint-rgb), .04); border: 1px solid var(--hair); transition: color .15s, background .15s, border-color .15s; }
+.theme-toggle:hover { color: var(--text); background: rgba(var(--tint-rgb), .08); border-color: var(--hair-strong); }
+.theme-toggle svg { width: 1.05rem; height: 1.05rem; }

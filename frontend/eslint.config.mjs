@@ -6,6 +6,8 @@ import globals from 'globals';
 
 export default tseslint.config(
   { ignores: ['dist/**', 'node_modules/**'] },
+  // scripturile din public/ rulează direct în browser, nu prin Vite
+  { files: ['public/**/*.js'], languageOptions: { globals: { ...globals.browser }, sourceType: 'script' } },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
