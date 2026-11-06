@@ -9,6 +9,8 @@ import type { Event } from '../events/event.entity';
  */
 export type GeocodeStatus = 'PENDING' | 'FOUND' | 'NOT_FOUND' | 'FAILED' | 'SKIPPED';
 
+export const DUE_NOW = new Date(0);
+
 /** Cheia de căutare și de cache: „  Str. Lungă 1,  Brașov ” și „str. lungă 1, brașov” sunt aceeași adresă. */
 export const geocodeKey = (location: string) => location.trim().replace(/\s+/g, ' ').toLowerCase();
 
@@ -21,7 +23,9 @@ export function refreshGeocodeState(e: Event) {
   const key = geocodeKey(e.location);
   if (e.geocodeQuery === key && e.geocodeStatus && e.geocodeStatus !== 'SKIPPED') return;
   Object.assign(e, {
-    geocodeStatus: 'PENDING', geocodeQuery: key, latitude: null, longitude: null, geocodeLabel: null, geocodeAttempts: 0, geocodeAfter: new Date(),
+    // „de căutat imediat”: un moment fix din trecut, nu ora Node — worker-ul compară cu ceasul bazei (`now()`), iar
+    // cele două ceasuri pot diferi cu câteva milisecunde (Docker): un eveniment abia salvat ar părea „din viitor”
+    geocodeStatus: 'PENDING', geocodeQuery: key, latitude: null, longitude: null, geocodeLabel: null, geocodeAttempts: 0, geocodeAfter: DUE_NOW,
   });
 }
 

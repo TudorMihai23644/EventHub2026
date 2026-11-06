@@ -1273,7 +1273,8 @@ So: **no autocomplete**. The organizer types the address as before; it is looked
 
 ### Found along the way
 
-An e2e script crashed after starting the API on the test database; the orphaned server's workers then processed rows **during** the integration tests (4 tests failed once, passed on rerun). `openTestDb()` now tags its connections (`application_name`) and **refuses to run while any other client is connected** to the test database, with a clear message. Verified by holding a `psql` session open. The e2e scripts now kill their server on any exit.
+- **Flaky geocoding tests: clock skew (fixed 2026-11-06, separate commit).** In the full integration run, 4–5 geo tests failed now and then and passed on rerun. My first guess, an orphaned API from a crashed e2e script working on the test database, was **wrong**. The real cause: a new address got `geocodeAfter = new Date()` (**Node** clock), and the worker selects `geocodeAfter <= now()` (**database** clock). The Docker database runs 1–2 ms behind (measured), more when the machine is busy, so a just-saved event looked "from the future" and was skipped. Same class of bug as the outbox clock in [#6](#idea-6). Fix: "due now" is a fixed past instant (`DUE_NOW`, epoch); backoff times were already written with the database's own `now()`. Proof: simulating a 50 ms skew makes exactly those 5 tests fail; with the fix the full suite passes repeatedly.
+- The wrong guess still left a useful guard: `openTestDb()` tags its connections (`application_name`) and **refuses to run while any other client is connected** to the test database (verified by holding a `psql` session open), and the e2e scripts kill their server on any exit.
 
 ### Results
 

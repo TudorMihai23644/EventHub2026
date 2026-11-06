@@ -12,6 +12,7 @@ describe('starea hărții', () => {
     const e = ev();
     refreshGeocodeState(e);
     expect(e).toMatchObject({ geocodeStatus: 'PENDING', geocodeQuery: 'sala mare, brașov', latitude: null, geocodeAttempts: 0 });
+    expect(e.geocodeAfter).toEqual(new Date(0)); // „imediat”, fără să depindă de ceasul Node (vezi DUE_NOW)
   });
 
   it('aceeași locație (altă scriere): rezultatul rămâne, fără o căutare nouă', () => {
