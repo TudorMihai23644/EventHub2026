@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { appUrl } from '../common/urls';
 
 export const GEO_CONFIG = Symbol('GEO_CONFIG');
 
@@ -16,11 +17,10 @@ export interface GeoConfig {
 }
 
 export function geoConfig(env: NodeJS.ProcessEnv = process.env): GeoConfig {
-  const appUrl = (env.APP_URL?.trim() || 'http://localhost:5173').replace(/\/+$/, '');
   return {
     enabled: (env.GEOCODER?.trim().toLowerCase() || 'nominatim') !== 'off',
     baseUrl: (env.NOMINATIM_URL?.trim() || 'https://nominatim.openstreetmap.org').replace(/\/+$/, ''),
-    userAgent: env.GEOCODER_USER_AGENT?.trim() || `EventHub/1.0 (+${appUrl})`,
+    userAgent: env.GEOCODER_USER_AGENT?.trim() || `EventHub/1.0 (+${appUrl(env)})`,
     countryCodes: env.GEOCODER_COUNTRY?.trim() ?? 'ro',
     minIntervalMs: intervalMs(env.GEOCODER_MIN_INTERVAL_MS),
   };

@@ -10,18 +10,41 @@ Aplicație web pentru organizarea evenimentelor și gestionarea înscrierilor.
 #    Windows:  powershell -ExecutionPolicy Bypass -File .\setup-secrets.ps1
 #    Mac/Linux: sh setup-secrets.sh
 
-# 1. Totul în Docker: PostgreSQL + API + frontend (nginx)
-docker compose up --build        # aplicația pe http://localhost:5173, API pe http://localhost:3000/api
+# 1. PostgreSQL + API în Docker
+docker compose up --build        # API pe http://localhost:5200/api
 
-# 2. sau, pentru dezvoltare pe frontend (reîncărcare la salvare): backend-ul în Docker, frontend-ul local
-docker compose up --build db backend
-cd frontend && npm install && npm run dev   # tot http://localhost:5173
+# 2. Frontend-ul, local (reîncărcare la salvare)
+cd frontend && npm install && npm run dev   # http://localhost:5100
+
+# sau totul în Docker, cu frontend-ul servit de nginx (în loc de pasul 2, nu împreună: același port)
+docker compose --profile web up --build     # http://localhost:5100
 ```
 
 În Docker, frontend-ul e servit de nginx cu antete de securitate, inclusiv **Content-Security-Policy**
 (`frontend/nginx/default.conf.template`): scripturi doar de pe site (+ Cloudflare Turnstile), conexiuni doar spre API (+ Sentry),
 imagini de la API, OpenStreetMap și Cloudinary, fără încadrare în alte site-uri. Adresa API-ului intră în build (`PUBLIC_API_URL`),
-iar originea ei în CSP la pornire (`API_ORIGIN`, implicit `http://localhost:3000`).
+iar originea ei în CSP la pornire (`API_ORIGIN`, implicit `http://localhost:5200`).
+
+### Porturi
+
+| | Port | Unde se schimbă |
+|---|---|---|
+| Frontend (`npm run dev` sau nginx din Docker) | **5100** | `FRONTEND_PORT` |
+| API | **5200** (același în container și în afara lui) | `API_PORT` |
+| PostgreSQL | 5432, doar pe `127.0.0.1` | `docker-compose.yml` |
+| PostgreSQL pentru teste | 55432, doar pe `127.0.0.1` | `TEST_DB_PORT` |
+
+Pentru alte porturi, pune într-un fișier `.env` lângă `docker-compose.yml` (ex. `FRONTEND_PORT=5101`, `API_PORT=5300`): adresele derivate
+(`APP_URL`, `PUBLIC_API_URL`, CORS, CSP, linkurile din emailuri) se schimbă singure. Pentru `npm run dev` pe alt port:
+`FRONTEND_PORT=5101 npm run dev` și `VITE_API_URL` în `frontend/.env`.
+
+Ca să nu mai apară conflicte:
+- **un port ocupat oprește pornirea cu un mesaj clar**: Vite (`strictPort`) și API-ul nu mai trec în tăcere pe alt port, unde
+  CORS ar respinge cererile („Serverul nu răspunde”);
+- **frontend-ul nginx din Docker e opțional** (`--profile web`): `docker compose up` nu mai ocupă portul lui `npm run dev`;
+- **CORS acceptă și `127.0.0.1`** pentru o adresă `localhost` (și invers): aceeași pagină, deschisă pe oricare variantă, merge;
+- **valorile implicite sunt într-un singur loc** (`backend/src/common/urls.ts`); `urls.spec.ts` verifică la fiecare rulare a testelor
+  (și în CI) că `docker-compose.yml`, `vite.config.ts`, `.env.development`, `.env.example` și Dockerfile-urile au aceleași porturi.
 
 Fără Docker pentru backend: pornește doar `docker compose up db`, apoi
 `cd backend && cp .env.example .env`, completează în `.env` aceleași valori ca în `secrets/*.txt` și rulează `npm install && npm run start:dev`.
@@ -31,7 +54,7 @@ Tabelele se creează prin migrări, rulate automat la pornirea API-ului (vezi [M
 
 ## Configurare
 
-- **Adresa API-ului (frontend):** `VITE_API_URL` în `frontend/.env` (implicit `http://localhost:3000/api`, din `.env.development`).
+- **Adresa API-ului (frontend):** `VITE_API_URL` în `frontend/.env` (implicit `http://localhost:5200/api`, din `.env.development`).
   Toate cererile trec prin `src/api.ts`, care folosește `API_URL` din `src/config.ts`; nu există adrese scrise direct în pagini.
 - **Conturi de organizator:** se creează doar cu codul de invitație din `secrets/organizer_invite_code.txt`.
   Dacă lipsește, nimeni nu se poate înregistra ca organizator.
@@ -86,7 +109,7 @@ Altă bază: `TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_USER`, `TEST_DB_PASSWORD`,
 
 ## API
 
-Documentație interactivă (poți trimite orice cerere din browser): `http://localhost:3000/api/docs`.
+Documentație interactivă (poți trimite orice cerere din browser): `http://localhost:5200/api/docs`.
 Este pornită implicit în afara producției și în `docker compose` local (`SWAGGER_ENABLED=true`); într-o instalare de producție lipsește, dacă nu setezi `SWAGGER_ENABLED=true`.
 Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt definite într-un singur loc:
 `backend/src/common/routes.ts` (backend) și `frontend/src/endpoints.ts` (frontend).
@@ -251,8 +274,8 @@ sunt publice, dar adaptează răspunsul dacă cererea are token.
   Resetarea parolei închide de asemenea toate sesiunile. Token-urile expirate sau revocate de peste 7 zile se șterg zilnic, la 03:00.
 - **CSRF:** rutele care folosesc cookie-ul cer antetul `X-EventHub-Client: web`. Un formular de pe alt site nu poate trimite antete proprii,
   iar CORS acceptă credențiale doar de la originile din `CORS_ORIGIN`.
-- **Frontend-ul și API-ul trebuie să fie pe același site** (ex. `eventhub.ro` + `api.eventhub.ro`, sau API-ul sub `eventhub.ro/api`; `localhost:5173` +
-  `localhost:3000` contează ca același site). Pe două domenii fără legătură, cookie-ul ar fi „third-party” și multe browsere (ex. Safari) îl blochează.
+- **Frontend-ul și API-ul trebuie să fie pe același site** (ex. `eventhub.ro` + `api.eventhub.ro`, sau API-ul sub `eventhub.ro/api`; `localhost:5100` +
+  `localhost:5200` contează ca același site). Pe două domenii fără legătură, cookie-ul ar fi „third-party” și multe browsere (ex. Safari) îl blochează.
 
 | Variabilă | Implicit | Rol |
 |---|---|---|
@@ -280,7 +303,7 @@ Fără ele, formularul nu arată prețul și un eveniment nu poate primi preț (
 - Evenimentele cu plată **nu au listă de așteptare**; un eveniment cu bilete plătite nu mai poate deveni gratuit (prețul se poate schimba
   pentru biletele următoare). Statisticile organizatorului arată încasările.
 - Plățile rămân în baza de date și după ștergerea evenimentului sau a contului (evidența banilor).
-- Local: `stripe listen --forward-to localhost:3000/api/payments/webhook` (Stripe CLI) afișează secretul `whsec_…` de pus în `.env`.
+- Local: `stripe listen --forward-to localhost:5200/api/payments/webhook` (Stripe CLI) afișează secretul `whsec_…` de pus în `.env`.
 
 ## Google, Turnstile, Sentry (opționale)
 
@@ -288,7 +311,7 @@ Toate trei sunt **oprite** până primesc cheile lor; fără ele aplicația merg
 
 - **„Continuă cu Google”** (`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, în Docker `secrets/google_client_secret.txt`).
   În Google Cloud Console: OAuth client de tip *Web application*, *Authorized redirect URI* = `PUBLIC_API_URL` + `/auth/google/callback`
-  (ex. `http://localhost:3000/api/auth/google/callback`).
+  (ex. `http://localhost:5200/api/auth/google/callback`).
   - Fluxul cu cod de autorizare pe server, cu **PKCE**, **state** (anti-CSRF, într-un cookie httpOnly de 10 minute, SameSite=Lax) și **nonce**.
     Din ID token se verifică emitentul, destinatarul (`aud` = clientul nostru), expirarea, nonce-ul și `email_verified`.
   - Cont nou → **participant** cu adresa confirmată și **fără parolă** (își poate seta una cu „Ai uitat parola?”). Organizatorii se creează în
@@ -377,9 +400,9 @@ cu eroarea salvată. Două instanțe ale API-ului nu trimit niciodată același 
 |---|---|---|
 | `RESEND_API_KEY` / `secrets/resend_api_key.txt` | gol | cheia Resend; gol = doar log |
 | `MAIL_FROM` | `EventHub <onboarding@resend.dev>` | expeditorul |
-| `APP_URL` | `http://localhost:5173` | adresa frontend-ului, pentru linkurile din emailuri |
+| `APP_URL` | `http://localhost:5100` | adresa frontend-ului, pentru linkurile din emailuri |
 | `APP_TIMEZONE` | `Europe/Bucharest` | fusul orar al datelor din emailuri (containerul API rulează în UTC) |
-| `PUBLIC_API_URL` | `http://localhost:3000/api` | adresa publică a API-ului, pentru linkurile `.ics` din emailuri |
+| `PUBLIC_API_URL` | `http://localhost:5200/api` | adresa publică a API-ului, pentru linkurile `.ics` din emailuri |
 
 Planul gratuit Resend: 100 de emailuri pe zi și 3.000 pe lună. Dacă limita zilnică este atinsă (ex. ștergerea unui eveniment mare), restul emailurilor așteaptă în coadă
 și se reîncearcă; după 5 încercări (~15 minute) devin `FAILED`. Pentru volume mai mari este nevoie de un plan plătit.

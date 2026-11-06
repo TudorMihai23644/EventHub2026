@@ -13,5 +13,6 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
-EXPOSE 3000
+# portul vine din PORT (implicit 5200, vezi src/common/urls.ts și docker-compose.yml)
+EXPOSE 5200
 CMD ["node", "dist/main"]

@@ -1,5 +1,5 @@
 // Toate URI-urile API-ului, într-un singur loc. Calea se adaugă la API_URL
-// (ex. http://localhost:3000/api) în api.ts.
+// (ex. http://localhost:5200/api) în api.ts.
 export const ENDPOINTS = {
   health: '/health',
   auth: {

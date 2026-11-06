@@ -11,6 +11,7 @@ import { API_PREFIX } from './common/routes';
 import { swaggerEnabled, trustProxySetting } from './common/security';
 import { createValidationPipe } from './common/validation';
 import { uploadsDir } from './images/images.module';
+import { corsOrigins, listenPort } from './common/urls';
 
 async function bootstrap() {
   // rawBody: webhook-ul Stripe se verifică pe octeții exacți primiți (JSON-ul reparsat n-ar mai avea aceeași semnătură)
@@ -37,14 +38,12 @@ async function bootstrap() {
   });
 
   app.setGlobalPrefix(API_PREFIX);
-  // Cookie-ul de refresh (httpOnly) se citește din cereri; CORS permite credențiale doar pentru originile din CORS_ORIGIN.
+  // Cookie-ul de refresh (httpOnly) se citește din cereri; CORS permite credențiale doar pentru originile frontend-ului
+  // (CORS_ORIGIN sau, implicit, APP_URL; vezi common/urls.ts).
   app.use(cookieParser());
-  app.enableCors({
-    origin: (process.env.CORS_ORIGIN ?? 'http://localhost:5173').split(','),
-    credentials: true,
-  });
+  app.enableCors({ origin: corsOrigins(), credentials: true });
   app.useGlobalPipes(createValidationPipe()); // mesaje câmp cu câmp, vezi common/validation.ts
-  // Documentația interactivă: http://localhost:3000/api/docs (doar dacă SWAGGER_ENABLED / în afara producției)
+  // Documentația interactivă: <PUBLIC_API_URL>/docs, ex. http://localhost:5200/api/docs (doar dacă SWAGGER_ENABLED / în afara producției)
   if (docs) {
     const docConfig = new DocumentBuilder().setTitle('EventHub API').setVersion('1.0').addBearerAuth().addSecurityRequirements('bearer').build();
     SwaggerModule.setup(`${API_PREFIX}/docs`, app, SwaggerModule.createDocument(app, docConfig), {
@@ -52,6 +51,14 @@ async function bootstrap() {
     });
   }
 
-  await app.listen(process.env.PORT ?? 3000);
+  // Port ocupat: un mesaj clar în loc de un stack trace (de obicei o altă instanță a API-ului sau alt program)
+  const port = listenPort();
+  await app.listen(port).catch((e: NodeJS.ErrnoException) => {
+    if (e.code === 'EADDRINUSE') {
+      console.error(`Portul ${port} este deja folosit (altă instanță a API-ului sau alt program). Oprește-l sau pornește cu PORT=<alt port>.`);
+      process.exit(1);
+    }
+    throw e;
+  });
 }
 bootstrap();

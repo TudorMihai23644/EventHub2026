@@ -1,6 +1,11 @@
 # Valorile secrete NU sunt în acest fișier. Se citesc din ./secrets/*.txt
 # (create cu setup-secrets.ps1 / setup-secrets.sh, ignorate de Git) și sunt
 # montate în containere ca fișiere în /run/secrets, nu ca variabile de mediu.
+#
+# Porturi (un singur loc; se pot schimba într-un fișier .env lângă acest fișier, ex. API_PORT=5300):
+#   FRONTEND_PORT (implicit 5100) – frontend-ul; API_PORT (implicit 5200) – API-ul, același port în container și în afara lui.
+#   Implicit pornesc doar db + backend: frontend-ul se rulează cu `npm run dev` pe FRONTEND_PORT. Frontend-ul nginx din Docker
+#   e opțional: `docker compose --profile web up` (cele două ar cere același port; vezi README, „Porturi”).
 services:
   db:
     image: postgres:16-alpine
@@ -23,12 +28,13 @@ services:
   backend:
     build: ./backend
     environment:
-      PORT: 3000
+      PORT: ${API_PORT:-5200}
       DB_HOST: db
       DB_PORT: 5432
       DB_USER: ${DB_USER:-eventhub}
       DB_NAME: ${DB_NAME:-eventhub}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      # gol = derivat din APP_URL (+ 127.0.0.1); vezi backend/src/common/urls.ts
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
       # Imaginea rulează cu NODE_ENV=production; local păstrăm documentația /api/docs.
       SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
       # Setează doar în spatele unui reverse proxy (ex. 1), ca limitarea cererilor să vadă IP-ul real.
@@ -39,10 +45,10 @@ services:
       # Emailuri (vezi README, „Email”). Fără cheie Resend, emailurile sunt doar scrise în log.
       RESEND_API_KEY_FILE: /run/secrets/resend_api_key
       MAIL_FROM: ${MAIL_FROM:-EventHub <onboarding@resend.dev>}
-      APP_URL: ${APP_URL:-http://localhost:5173}
+      APP_URL: ${APP_URL:-http://localhost:${FRONTEND_PORT:-5100}}
       APP_TIMEZONE: ${APP_TIMEZONE:-Europe/Bucharest}
       # Adresa publică a API-ului: linkurile „.ics” din emailuri trimit aici.
-      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3000/api}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:${API_PORT:-5200}/api}
       # Imaginile de copertă: local în volumul `uploads`; pe Cloudinary dacă secrets/cloudinary_url.txt nu e gol.
       UPLOADS_DIR: /app/uploads
       CLOUDINARY_URL_FILE: /run/secrets/cloudinary_url
@@ -74,27 +80,28 @@ services:
       - stripe_secret_key
       - stripe_webhook_secret
     ports:
-      - "3000:3000"
+      - "${API_PORT:-5200}:${API_PORT:-5200}"
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:$${PORT}/api/health || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 12
 
   # Frontend-ul (nginx, cu Content-Security-Policy). Adresa API-ului intră în build; originea ei și în CSP, la pornire.
   frontend:
+    profiles: [web] # opțional: docker compose --profile web up
     build:
       context: ./frontend
       args:
-        VITE_API_URL: ${PUBLIC_API_URL:-http://localhost:3000/api}
+        VITE_API_URL: ${PUBLIC_API_URL:-http://localhost:${API_PORT:-5200}/api}
         VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
     environment:
-      API_ORIGIN: ${API_ORIGIN:-http://localhost:3000}
+      API_ORIGIN: ${API_ORIGIN:-http://localhost:${API_PORT:-5200}}
     ports:
-      - "5173:80"
+      - "${FRONTEND_PORT:-5100}:80"
     depends_on:
       backend:
         condition: service_healthy

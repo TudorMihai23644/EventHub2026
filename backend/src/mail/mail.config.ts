@@ -1,4 +1,5 @@
 import { secret } from '../common/secrets';
+import { appUrl, publicApiUrl } from '../common/urls';
 
 export const MAIL_CONFIG = Symbol('MAIL_CONFIG');
 
@@ -21,8 +22,8 @@ export function mailConfig(env: NodeJS.ProcessEnv = process.env): MailConfig {
   return {
     apiKey: secret('RESEND_API_KEY', false),
     from: env.MAIL_FROM?.trim() || 'EventHub <onboarding@resend.dev>',
-    appUrl: (env.APP_URL?.trim() || 'http://localhost:5173').replace(/\/+$/, ''),
-    apiUrl: (env.PUBLIC_API_URL?.trim() || 'http://localhost:3000/api').replace(/\/+$/, ''),
+    appUrl: appUrl(env),
+    apiUrl: publicApiUrl(env),
     timeZone: env.APP_TIMEZONE?.trim() || 'Europe/Bucharest',
     resendBaseUrl: env.RESEND_BASE_URL?.trim() || undefined,
   };

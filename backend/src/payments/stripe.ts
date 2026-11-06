@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { secret } from '../common/secrets';
+import { appUrl } from '../common/urls';
 
 export const STRIPE_CONFIG = Symbol('STRIPE_CONFIG');
 /** Toate prețurile sunt în lei. Stripe cere cel puțin 2,00 lei pentru o plată în RON. */
@@ -24,7 +25,7 @@ export function stripeConfig(env: NodeJS.ProcessEnv = process.env): StripeConfig
     secretKey,
     webhookSecret,
     apiUrl: (env.STRIPE_API_URL?.trim() || 'https://api.stripe.com').replace(/\/+$/, ''), // altul doar în teste
-    appUrl: (env.APP_URL?.trim() || 'http://localhost:5173').replace(/\/+$/, ''),
+    appUrl: appUrl(env),
   };
 }
 

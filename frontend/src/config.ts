@@ -2,7 +2,7 @@
 const raw = import.meta.env.VITE_API_URL as string | undefined;
 
 if (!raw) {
-  throw new Error('VITE_API_URL nu este setat. Adaugă-l în frontend/.env, de exemplu VITE_API_URL=http://localhost:3000/api');
+  throw new Error('VITE_API_URL nu este setat. Adaugă-l în frontend/.env, de exemplu VITE_API_URL=http://localhost:5200/api');
 }
 
 export const API_URL = raw.replace(/\/+$/, '');

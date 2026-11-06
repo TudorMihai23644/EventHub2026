@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { secret } from '../../common/secrets';
+import { appUrl, publicApiUrl } from '../../common/urls';
 
 export const GOOGLE_CONFIG = Symbol('GOOGLE_CONFIG');
 
@@ -19,13 +20,12 @@ export interface GoogleConfig {
 export function googleConfig(env: NodeJS.ProcessEnv = process.env): GoogleConfig {
   const clientId = env.GOOGLE_CLIENT_ID?.trim() ?? '';
   const clientSecret = secret('GOOGLE_CLIENT_SECRET', false, env) ?? '';
-  const apiUrl = (env.PUBLIC_API_URL?.trim() || 'http://localhost:3000/api').replace(/\/+$/, '');
   return {
     enabled: !!clientId && !!clientSecret,
     clientId,
     clientSecret,
-    redirectUri: `${apiUrl}/auth/google/callback`,
-    appUrl: (env.APP_URL?.trim() || 'http://localhost:5173').replace(/\/+$/, ''),
+    redirectUri: `${publicApiUrl(env)}/auth/google/callback`,
+    appUrl: appUrl(env),
     // configurabile doar pentru testele cu un server Google fals
     authUrl: env.GOOGLE_AUTH_URL?.trim() || 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenUrl: env.GOOGLE_TOKEN_URL?.trim() || 'https://oauth2.googleapis.com/token',
