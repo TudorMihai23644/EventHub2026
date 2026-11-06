@@ -1,0 +1,115 @@
+# Verificarea automată a fiecărui push / pull request: backend, frontend și pornirea întregii aplicații în Docker.
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    # aceeași bază ca local (`npm run test:db:up`): 127.0.0.1:55432, postgres/test, eventhub_test
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: eventhub_test
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d eventhub_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - name: Cod nefolosit (knip)
+        run: npm run knip
+      - run: npm run build
+      # număr fix de procese: timpii rămân previzibili pe mașinile CI
+      - name: Teste unitare
+        run: npm run test:ci
+      - name: Teste de integrare (PostgreSQL real)
+        run: npm run test:int
+      # după testele de integrare baza are toate migrările: entitățile trebuie să corespundă exact schemei
+      - name: Migrări sincronizate cu entitățile
+        run: npm run migration:check
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: '55432'
+          DB_USER: postgres
+          DB_PASSWORD: test
+          DB_NAME: eventhub_test
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - name: Cod nefolosit (knip)
+        run: npm run knip
+      - run: npm test
+      - run: npm run build
+        env:
+          VITE_API_URL: http://localhost:3000/api
+
+  # Întreaga aplicație, ca la `docker compose up`: imagini construite, migrări rulate, API sănătos, frontend servit.
+  compose:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secrete de test (aleatoare; cele opționale goale)
+        run: |
+          mkdir -p secrets
+          openssl rand -hex 16 > secrets/db_password.txt
+          openssl rand -hex 32 > secrets/jwt_secret.txt
+          openssl rand -hex 8 > secrets/organizer_invite_code.txt
+          for f in resend_api_key cloudinary_url google_client_secret turnstile_secret_key stripe_secret_key stripe_webhook_secret; do
+            : > "secrets/$f.txt"
+          done
+      - name: docker-compose.yml valid
+        run: docker compose config -q
+      - name: Pornire (așteaptă health check-urile)
+        run: docker compose up -d --build --wait --wait-timeout 180
+      - name: Verificări
+        run: |
+          set -e
+          curl -fsS http://localhost:3000/api/health
+          curl -fsS http://localhost:3000/api/events | grep -q '"items"'
+          curl -fsS http://localhost:5173/ | grep -q '<div id="root">'
+          curl -fsS http://localhost:5173/events/oricare | grep -q '<div id="root">'   # rutele aplicației → index.html
+          curl -fsSI http://localhost:5173/ | grep -qi "content-security-policy: default-src 'self'"
+      - name: Jurnale (dacă ceva a eșuat)
+        if: failure()
+        run: docker compose logs --no-color
+      - if: always()
+        run: docker compose down -v

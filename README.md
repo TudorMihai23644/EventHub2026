@@ -10,14 +10,18 @@ Aplicație web pentru organizarea evenimentelor și gestionarea înscrierilor.
 #    Windows:  powershell -ExecutionPolicy Bypass -File .\setup-secrets.ps1
 #    Mac/Linux: sh setup-secrets.sh
 
-# 1. Backend + PostgreSQL (Docker)
-docker compose up --build        # API pe http://localhost:3000/api
+# 1. Totul în Docker: PostgreSQL + API + frontend (nginx)
+docker compose up --build        # aplicația pe http://localhost:5173, API pe http://localhost:3000/api
 
-# 2. Frontend
-cd frontend
-npm install
-npm run dev                      # http://localhost:5173
+# 2. sau, pentru dezvoltare pe frontend (reîncărcare la salvare): backend-ul în Docker, frontend-ul local
+docker compose up --build db backend
+cd frontend && npm install && npm run dev   # tot http://localhost:5173
 ```
+
+În Docker, frontend-ul e servit de nginx cu antete de securitate, inclusiv **Content-Security-Policy**
+(`frontend/nginx/default.conf.template`): scripturi doar de pe site (+ Cloudflare Turnstile), conexiuni doar spre API (+ Sentry),
+imagini de la API, OpenStreetMap și Cloudinary, fără încadrare în alte site-uri. Adresa API-ului intră în build (`PUBLIC_API_URL`),
+iar originea ei în CSP la pornire (`API_ORIGIN`, implicit `http://localhost:3000`).
 
 Fără Docker pentru backend: pornește doar `docker compose up db`, apoi
 `cd backend && cp .env.example .env`, completează în `.env` aceleași valori ca în `secrets/*.txt` și rulează `npm install && npm run start:dev`.
@@ -47,7 +51,20 @@ Dacă schimbi `db_password.txt` după ce baza a fost creată, rulează `docker c
 `resend_api_key.txt` și `cloudinary_url.txt` sunt opționale, dar fișierele trebuie să existe (pot fi goale), altfel `docker compose` nu pornește.
 Dacă ai rulat scriptul de secrete înainte de ele, rulează-l din nou: creează doar fișierele care lipsesc.
 
-## Teste
+## Teste și verificări
+
+Fiecare push / pull request rulează **CI** (`.github/workflows/ci.yml`): pentru backend și frontend lint, tipuri, cod nefolosit (knip), teste
+și build; pentru backend și testele de integrare pe PostgreSQL real și verificarea că migrările corespund entităților; apoi pornește
+toată aplicația cu `docker compose up` și verifică API-ul, frontend-ul și antetul CSP. Local, aceleași comenzi:
+
+```bash
+cd backend  && npm run lint && npm run typecheck && npm run knip && npm test
+cd frontend && npm run lint && npm run typecheck && npm run knip && npm test
+```
+
+Frontend (Vitest + Testing Library, `src/*.test.ts(x)`): conversia lei ↔ bani, întoarcerea sigură după autentificare (`safeNext`),
+adresele trimise la Sentry fără token-uri, pagina de validare a biletelor (verdicte, o singură cerere și în StrictMode, vizitator / participant),
+codul QR al biletului și `ErrorBoundary`.
 
 ```bash
 cd backend && npm test

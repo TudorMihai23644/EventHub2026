@@ -193,7 +193,7 @@ describe('Bilete cu plată (integrare)', () => {
     expect(stripe.refunds).toEqual([{ pi: `pi_${(await paymentOf(a)).id}`, paymentId: (await paymentOf(a)).id }]);
     expect((await paymentOf(a)).status).toBe('REFUNDED');
     const refundMail = await ds.getRepository(OutboxEmail).findOneByOrFail({ kind: 'payment-refunded' });
-    expect(refundMail.text.replace(/ /g, ' ')).toContain('49,90 lei');
+    expect(refundMail.text.replace(/\u00a0/g, ' ')).toContain('49,90 lei');
     expect(await worker.processBatch()).toBe(0); // nu de două ori
   });
 

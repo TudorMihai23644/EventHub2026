@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { mkdtemp, readdir, readFile, rm } from 'fs/promises';
 import { createServer, IncomingMessage, Server } from 'http';
 import { AddressInfo } from 'net';
@@ -53,7 +54,7 @@ describe('Cloudinary', () => {
 
   it('semnătura: parametri sortați alfabetic, uniți cu &, plus secretul, SHA-1', () => {
     const sig = cloudinarySignature({ timestamp: '1315060510', public_id: 'sample' }, 'abcd');
-    const expected = require('crypto').createHash('sha1').update('public_id=sample&timestamp=1315060510abcd').digest('hex');
+    const expected = createHash('sha1').update('public_id=sample&timestamp=1315060510abcd').digest('hex');
     expect(sig).toBe(expected);
   });
 

@@ -47,7 +47,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 | [10](#idea-10) | [x] | 24h reminders (`@nestjs/schedule`) + `.ics` download + "Add to Google Calendar" link | Feature | S–M | 6 |
 | [11](#idea-11) | [x] | Event fields: `endsAt`, category/tags, cover image (Cloudinary), online/physical + link | Feature + API | M | |
 | [12](#idea-12) | [x] | Organizer tools: CSV export of attendees, analytics (registrations over time, no-show rate) | Feature | S–M | |
-| [13](#idea-13) | [ ] | CI (lint + tests), ESLint/Prettier, frontend tests, frontend in `docker-compose` | Tooling | M | |
+| [13](#idea-13) | [x] | CI (lint + tests), ESLint/Prettier, frontend tests, frontend in `docker-compose` | Tooling | M | |
 | [14](#idea-14) | [x] | Location on a map (free Nominatim + Leaflet; no autocomplete, per Nominatim policy) | Feature + API | M | |
 | [15](#idea-15) | [x] | QR ticket per registration + organizer check-in scanner | Feature | M–L | |
 | [16](#idea-16) | [x] | Google sign-in (OAuth), Cloudflare Turnstile on register/login, Sentry monitoring | API | S each | |
@@ -1233,9 +1233,43 @@ Sources: [Cloudinary pricing](https://cloudinary.com/pricing), [Cloudinary billi
 <a id="idea-13"></a>
 ## 13. CI, linting, frontend tests, frontend in Docker
 
-**Status:** idea · plan not written yet
+**Status:** done (2026-11-06), implemented without a separate plan review (user asked to finish the roadmap autonomously)
 
-No frontend tests, no ESLint/Prettier, no CI, and the frontend isn't in `docker-compose`.
+### Plan (as implemented)
+
+1. **GitHub Actions** (`.github/workflows/ci.yml`), three jobs:
+   - **backend:** `npm ci` → ESLint → `tsc` → knip → build → unit tests (`--maxWorkers=2`, fixed timing on CI machines) → **integration tests on a PostgreSQL 16 service container** (same port / credentials as `npm run test:db:up`, so no new configuration) → `migration:check` (entities match the migrated schema).
+   - **frontend:** `npm ci` → ESLint → `tsc` → knip → Vitest → build.
+   - **compose** (after both pass): random throwaway secrets, `docker compose config -q`, `docker compose up --build --wait` (health checks), then curl the API health, the events list, the SPA (including a deep link) and the **CSP header**. Logs are printed on failure, then `down -v`.
+2. **ESLint 9** (flat config, `typescript-eslint` recommended) in both apps, plus **React Hooks rules** in the frontend. Few project exceptions, each commented: `any` allowed (test doubles), `_unused` arguments, empty `catch`. Migrations are ignored (TypeORM's generated style).
+   Findings fixed: 2 unused imports, a `require()` in a test, **3 literal non-breaking spaces inside regexes** (invisible; now ` `), and 2 hook dependency warnings. `EventsPage.fetchPage` now has a `useCallback` with honest deps; `EventDetailPage` reloads on `user` intentionally, with an explained disable.
+   **Prettier: not added.** Reformatting would rewrite almost every file (the codebase deliberately uses long lines), burying history for no behaviour change. Recorded as a decision.
+3. **knip** (unused files / exports / dependencies) in both apps, with a config naming the real entry points: TypeORM CLI data source, migrations loaded by glob, `*.int-spec.ts` (separate Jest config). It found **`multer` imported but not declared** (it only worked because `@nestjs/platform-express` happens to install it), now an explicit dependency, plus one dead export (`checkInUrl`).
+4. **Frontend tests: Vitest 2 + Testing Library + jsdom** (Vitest 4 needs Vite ≥ 6; upgrading Vite wasn't this idea's job). 30 tests:
+   - helpers: lei ↔ bani (now in `money.ts`), `safeNext` open-redirect cases, Sentry URL stripping, Google error messages, seat labels;
+   - components: check-in verdicts (valid / already / rejected), **exactly one request even under StrictMode**, participant and visitor views; the ticket QR encodes this ticket's `/check-in/CODE` link; `ErrorBoundary` fallback.
+   - Mutation check: removing the StrictMode guard in `CheckInPage` → the "one request" test fails.
+5. **Frontend container:** multi-stage `node:24-alpine` build → `nginx:1.27-alpine`. SPA fallback, hashed assets cached for a year, `index.html` no-cache, gzip. **Security headers including a Content-Security-Policy** (closes the Inbox item): scripts only from self + Turnstile; connections to the API + Sentry; images from self, the API, OSM tiles, Cloudinary, `data:` (QR); `frame-ancestors 'none'`; `object-src 'none'`. `'unsafe-inline'` only for styles (Leaflet / React `style` attributes); inline scripts stay forbidden. `API_ORIGIN` / `SENTRY_ORIGINS` are filled at container start (nginx templates), so one image fits any deployment. New compose service `frontend` on **5173**: `docker compose up` now runs the whole app.
+6. **Build hygiene:** `tsconfig.build.json` keeps specs and test helpers out of `dist` (42 spec files and `test/int-db.js` were shipped before; `dist` 2.0 MB → 1.3 MB, all 14 migrations still there); `deleteOutDir` so stale files can't linger; `engines: node >=22.12` in both apps; **`npm ci`** in both Dockerfiles; **`.gitattributes`** `* text=auto eol=lf` (with `core.autocrlf=true` a Windows checkout would give `setup-secrets.sh` CRLF line endings, breaking it in bash). The index was already LF, so no files changed.
+7. React Router v7 behaviour flags enabled (`v7_startTransition`, `v7_relativeSplatPath`): same behaviour today, no console warnings, ready for v7.
+
+### Results
+
+**Full `docker compose up --build`: not yet verified locally.** The first attempt (2026-11-06) was stopped by the system because the machine had 0.5 GB of 5.8 GB RAM free; it never got past building images. The CI `compose` job runs the same check on the first push.
+
+| Check | Result |
+|---|---|
+| ESLint backend / frontend | clean / clean |
+| knip backend / frontend | clean / clean |
+| Backend unit / integration | 29 suites, 329 / 13 suites, 137 |
+| Frontend Vitest | 2 files, 30 tests |
+| CI workflow YAML | parses (3 jobs, 25 steps); runs on the first push to GitHub |
+
+### Still open (Inbox)
+
+- Jest 29 pulls deprecated `glob@7` / `inflight` (dev-only, not in the production image) → upgrade to Jest 30.
+- Vite 5 → 6+ (then Vitest 4).
+- Prettier, if the team wants it, as one isolated formatting commit.
 
 [↑ Back to table of contents](#table-of-contents)
 
@@ -1555,7 +1589,7 @@ Screenshots saved in `docs/design/` (WebP, 156 KB for four; the PNGs were 2.8 MB
 - 2026-11-05 – Account follow-ups from [#7](#idea-7): (a) cleanup of used/expired rows in `auth_tokens`; (b) ✅ "change password" while logged in done in [#12](#idea-12); "change email" (needs re-verification) still open; (c) a banner update in other open tabs after verifying (today only the tab that opened the link refreshes); (d) register's unique-email race: two simultaneous sign-ups with the same address → the second gets a 500 from the database constraint instead of 409.
 - 2026-11-05 – **Content-Security-Policy for the frontend.** helmet's CSP from [#2](#idea-2) only covers API responses; the React app's `index.html` (served by Vite / a static host) has none. A CSP (`script-src 'self'`, fonts from Google, `connect-src` = the API) is the main defense against XSS, the attack [#8](#idea-8) limits the damage of. Set it in the static host's headers, or a `<meta http-equiv>` as a fallback.
 - 2026-11-05 – Tests under load, for [#13](#idea-13): twice now (ideas 7 and 9) one unit test failed only because the machine was heavily loaded (suites ran 5–10× slower; VS Code using a lot of CPU) and passed on rerun. In CI, run Jest with a fixed number of workers (`--maxWorkers=2`) so timings stay predictable.
-- 2026-11-05 – Update outdated dependencies that `npm install` warns about (`glob`, `inflight`, `uuid`, pulled in by other packages), as part of [#13](#idea-13).
+- 2026-11-05 – Outdated dependencies: checked in [#13](#idea-13). `glob@7` / `inflight` come only from Jest 29 (dev-only, not in the production image) → upgrade to Jest 30; `uuid` is current.
 - 2026-11-06 – Map follow-ups from [#14](#idea-14): (a) "events near me" (distance filter; `earthdistance` or PostGIS, browser geolocation only on click); (b) let the organizer drag the pin when OSM finds the wrong spot (store a manual override that geocoding never replaces); (c) retry `FAILED` geocodes once a day instead of only after a location edit; (d) production tile provider + add its host to the frontend CSP (`img-src`).
 - 2026-11-06 – Ticket follow-ups from [#15](#idea-15): (a) printable / Apple-Wallet-style ticket (PDF with the QR); (b) an in-app camera scanner for organizers who prefer it (`BarcodeDetector` where available, a JS decoder elsewhere) — today the phone camera opens the link, which works everywhere; (c) offline check-in for venues without signal (download the ticket list, sync later).
 - 2026-11-06 – For [#13](#idea-13): validate `docker-compose.yml` in CI (`docker compose config -q`) and smoke-test `docker compose up` (health check). Idea 11 part 2 broke the file and no test noticed for three ideas (fixed in [#16](#idea-16)).

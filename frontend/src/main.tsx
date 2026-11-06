@@ -13,7 +13,8 @@ startMonitoring(); // Sentry, doar cu VITE_SENTRY_DSN
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-    <BrowserRouter>
+    {/* comportamentul din React Router v7, activat de acum (fără avertismentele din consolă) */}
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ToastProvider>
         <AuthProvider>
           <App />

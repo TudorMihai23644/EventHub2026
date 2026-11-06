@@ -1,0 +1,7 @@
+# Toate fișierele text cu LF în repo și la checkout, pe orice sistem.
+# Fără asta, `core.autocrlf=true` (implicit pe Windows) pune CRLF, iar setup-secrets.sh nu mai rulează în bash / Docker.
+* text=auto eol=lf
+*.png binary
+*.webp binary
+*.jpg binary
+*.ico binary

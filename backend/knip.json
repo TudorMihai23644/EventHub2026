@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/main.ts",
+    "src/database/cli-data-source.ts",
+    "src/database/migrations/*.ts",
+    "src/**/*.int-spec.ts"
+  ],
+  "project": ["src/**/*.ts"],
+  "ignoreExportsUsedInFile": true
+}

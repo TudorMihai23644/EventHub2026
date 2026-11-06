@@ -16,7 +16,7 @@ import { csvDate, toCsv } from '../common/csv';
 import { refreshGeocodeState } from '../geo/geocode-state';
 import { Payment } from '../payments/payment.entity';
 import { activeHolds, refundOnEventDeleted } from '../payments/seats';
-import { MAX_PRICE_CENTS, MIN_PRICE_CENTS, STRIPE_CONFIG, priceLabel } from '../payments/stripe';
+import { STRIPE_CONFIG, priceLabel } from '../payments/stripe';
 import { HOLD_GRACE_MINUTES } from '../payments/payments.service';
 
 @Injectable()

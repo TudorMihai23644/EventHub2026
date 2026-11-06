@@ -84,6 +84,21 @@ services:
       timeout: 3s
       retries: 12
 
+  # Frontend-ul (nginx, cu Content-Security-Policy). Adresa API-ului intră în build; originea ei și în CSP, la pornire.
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${PUBLIC_API_URL:-http://localhost:3000/api}
+        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
+    environment:
+      API_ORIGIN: ${API_ORIGIN:-http://localhost:3000}
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
 secrets:
   db_password:
     file: ./secrets/db_password.txt

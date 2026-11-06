@@ -33,9 +33,9 @@ describe('Stripe', () => {
     expect(stripeConfig({ STRIPE_SECRET_KEY: 'sk', STRIPE_WEBHOOK_SECRET: 'wh' }).enabled).toBe(true);
   });
   it('prețul în lei', () => {
-    expect(priceLabel(4990).replace(/ /g, ' ')).toBe('49,90 lei');
+    expect(priceLabel(4990).replace(/\u00a0/g, ' ')).toBe('49,90 lei');
     expect(priceLabel(5000)).toBe('50 lei');
-    expect(priceLabel(120000).replace(/ /g, ' ')).toMatch(/^1\.?200 lei$/);
+    expect(priceLabel(120000).replace(/\u00a0/g, ' ')).toMatch(/^1\.?200 lei$/);
   });
 });
 

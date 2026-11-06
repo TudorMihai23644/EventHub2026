@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, assetUrl } from '../api';
 import { ENDPOINTS } from '../endpoints';
@@ -21,13 +21,13 @@ export default function EventsPage() {
   // Crește la fiecare schimbare de filtre. Un răspuns pentru filtre vechi (rețea lentă) este ignorat.
   const generation = useRef(0);
 
-  const fetchPage = (page: number) => {
+  const fetchPage = useCallback((page: number) => {
     const qs = new URLSearchParams({ sort, page: String(page), limit: String(PAGE_SIZE) });
     if (search.trim()) qs.set('search', search.trim());
     if (available) qs.set('available', 'true');
     if (category) qs.set('category', category);
     return api<Paginated<EventItem>>(ENDPOINTS.events.list(qs.toString()));
-  };
+  }, [search, sort, available, category]);
 
   // Filtre noi: se pornește din nou de la pagina 1.
   useEffect(() => {
@@ -44,7 +44,7 @@ export default function EventsPage() {
       }
     }, 250);
     return () => clearTimeout(t);
-  }, [search, sort, available, category]);
+  }, [fetchPage]); // fetchPage se schimbă exact când se schimbă filtrele
 
   async function loadMore() {
     if (!info) return;

@@ -5,15 +5,12 @@ import { ENDPOINTS } from '../endpoints';
 import { EventFormat, EventItem } from '../types';
 import { FieldError, Loading, errMsg, formError, toLocalInput, useEventOptions, useToast } from '../ui';
 import { ResendVerificationButton } from './VerifyEmailPage';
+import { toCents, toLei } from '../money';
 
 const empty = {
   title: '', description: '', startsAt: '', endsAt: '', location: '', capacity: '50',
   category: '', format: 'PHYSICAL' as EventFormat, onlineUrl: '', price: '',
 };
-
-/** „49,90” sau „49.90” lei → 4990 bani; gol → null (gratuit); text care nu e număr → NaN. */
-const toCents = (lei: string) => (lei.trim() === '' ? null : Math.round(Number(lei.trim().replace(',', '.')) * 100));
-const toLei = (cents: number | null) => (cents ? (cents / 100).toFixed(2).replace('.', ',').replace(',00', '') : '');
 
 // Nicio regulă de validare aici: formularul trimite datele, iar API-ul
 // validează și întoarce câte un mesaj pentru fiecare câmp greșit (inclusiv regulile pe format).

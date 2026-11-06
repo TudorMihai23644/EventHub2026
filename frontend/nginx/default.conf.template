@@ -1,0 +1,41 @@
+# Frontend-ul (fișiere statice) + antetele de securitate. ${API_ORIGIN} și ${SENTRY_ORIGINS} se completează la pornire
+# (imaginea nginx rulează envsubst pe /etc/nginx/templates); variabilele nginx ($uri) rămân neatinse.
+server {
+  listen 80;
+  server_name _;
+  root /usr/share/nginx/html;
+  server_tokens off;
+
+  # Content-Security-Policy: principala apărare contra XSS. Doar scripturile noastre (+ Turnstile), conexiuni doar spre API
+  # (+ Sentry), imagini de la API, plăcile OpenStreetMap și Cloudinary. 'unsafe-inline' doar pentru stiluri: Leaflet și React
+  # poziționează elemente cu atributul style; scripturile inline rămân interzise.
+  set $csp "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: ${API_ORIGIN} https://tile.openstreetmap.org https://res.cloudinary.com; connect-src 'self' ${API_ORIGIN} ${SENTRY_ORIGINS}; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+
+  add_header Content-Security-Policy $csp always;
+  add_header X-Content-Type-Options nosniff always;
+  add_header Referrer-Policy strict-origin-when-cross-origin always;
+  add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
+  add_header Cross-Origin-Opener-Policy same-origin always;
+
+  # fișierele din build au hash în nume: se pot păstra un an
+  location /assets/ {
+    add_header Cache-Control "public, max-age=31536000, immutable";
+    add_header Content-Security-Policy $csp always;
+    add_header X-Content-Type-Options nosniff always;
+    try_files $uri =404;
+  }
+
+  # aplicația (React Router): orice altă adresă primește index.html, mereu verificat (o versiune nouă apare imediat)
+  location / {
+    add_header Cache-Control "no-cache";
+    add_header Content-Security-Policy $csp always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
+    add_header Cross-Origin-Opener-Policy same-origin always;
+    try_files $uri /index.html;
+  }
+
+  gzip on;
+  gzip_types text/css application/javascript application/json image/svg+xml;
+}

@@ -30,6 +30,8 @@ export default function EventDetailPage() {
     } catch (err) {
       setError(errMsg(err));
     }
+    // `user` nu e folosit în funcție, dar e intenționat în listă: la autentificare / deconectare pagina se reîncarcă
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, user]);
 
   useEffect(() => { load(); }, [load]);

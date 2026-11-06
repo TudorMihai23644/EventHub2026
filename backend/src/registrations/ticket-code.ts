@@ -13,5 +13,3 @@ export function normalizeTicketCode(input: string): string | null {
 /** „7KQ2M9XH4T” → „7KQ2M-9XH4T” (pentru afișare). */
 export const formatTicketCode = (code: string) => `${code.slice(0, 5)}-${code.slice(5)}`;
 
-/** Linkul din QR: îl deschide camera telefonului organizatorului, iar pagina validează biletul. */
-export const checkInUrl = (appUrl: string, code: string) => `${appUrl}/check-in/${code}`;
