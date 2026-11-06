@@ -587,7 +587,7 @@ New `backend/src/mail/` (`mail.module.ts`, `mailer.ts`, `resend.mailer.ts`, `log
 
 ### Decisions (2026-11-05)
 
-1. **Testing without a Resend account:** Claude tests everything itself with `LogMailer`, and tests the real `ResendMailer` code against a **local fake Resend server** (same HTTP calls, nothing leaves the machine). Delivery to a real inbox (step 17) waits for the user's API key.
+1. **Testing without a Resend account:** everything is tested locally with `LogMailer`, and tests the real `ResendMailer` code against a **local fake Resend server** (same HTTP calls, nothing leaves the machine). Delivery to a real inbox (step 17) waits for the user's API key.
 2. **Outbox** (recommended option) chosen.
 3. **Organizer emails added:** the organizer also gets an email when someone **registers** or **cancels** for one of their events (one email per registration / cancellation). If that gets too noisy for popular events, a daily digest is a possible follow-up.
 
