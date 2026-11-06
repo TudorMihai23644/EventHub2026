@@ -28,11 +28,14 @@ export class Notifications {
   }
 
   /** Participantul și-a anulat înscrierea: confirmare pentru el, anunț pentru organizator. */
-  async registrationCancelled(m: EntityManager, d: { userId: string; event: Event; taken: number }) {
+  /** `notifyParticipant: false`: participantul își șterge contul; nu îi mai scriem, doar organizatorului. */
+  async registrationCancelled(m: EntityManager, d: { userId: string; event: Event; taken: number; notifyParticipant?: boolean }) {
     const participant = await this.user(m, d.userId);
     const organizer = await this.user(m, d.event.organizerId);
     const event = info(d.event);
-    await this.enqueue(m, 'registration-cancelled', participant, T.registrationCancelled(this.cfg, { name: participant.name, event }));
+    if (d.notifyParticipant !== false) {
+      await this.enqueue(m, 'registration-cancelled', participant, T.registrationCancelled(this.cfg, { name: participant.name, event }));
+    }
     await this.enqueue(m, 'organizer-cancellation', organizer, T.organizerCancellation(this.cfg, {
       organizerName: organizer.name, participantName: participant.name, event, taken: d.taken, capacity: d.event.capacity,
     }));

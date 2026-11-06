@@ -24,5 +24,6 @@ import { accessTokenTtl } from './session-policy';
   ],
   controllers: [AuthController],
   providers: [AuthService, TokensService, SessionsService],
+  exports: [AuthService], // AccountModule: schimbarea parolei emite o sesiune nouă
 })
 export class AuthModule {}

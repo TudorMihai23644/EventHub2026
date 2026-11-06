@@ -160,3 +160,18 @@ h2 .pill { vertical-align: middle; }
 .file-btn input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
 .file-btn:focus-within { outline: 3px solid var(--red); outline-offset: 3px; }
 @media (max-width: 600px) { .row-cover { width: 100%; } }
+
+/* statisticile organizatorului */
+.stats { margin-top: .9rem; display: grid; gap: .75rem; }
+.stat-row { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; }
+.stat-row div { display: grid; }
+.stat-row strong { font: 700 1.3rem/1.1 var(--display); color: var(--text); }
+.stat-row span { font-size: .8rem; color: var(--muted); }
+.bars { list-style: none; margin: 0; padding: 0; display: flex; align-items: flex-end; gap: .35rem; height: 7rem; overflow-x: auto; }
+.bars li { flex: 0 0 2.4rem; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: .25rem; }
+.bar-fill { width: 100%; min-height: 2px; background: var(--red); border-radius: .25rem .25rem 0 0; }
+.bar-label { font-size: .68rem; color: var(--muted); white-space: nowrap; }
+.stack { display: grid; gap: 1.25rem; max-width: 40rem; }
+.card { border: 1px solid var(--line); border-radius: .85rem; background: #050505; padding: 1.25rem; }
+.card h2 { margin-bottom: .25rem; }
+.danger-zone { border-color: rgba(255, 16, 48, .45); }

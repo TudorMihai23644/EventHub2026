@@ -1,9 +1,11 @@
 import { Link, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
-import { RequireRole, useAuth } from './auth';
+import { RequireRole, RequireUser, useAuth } from './auth';
 import EventsPage from './pages/EventsPage';
 import EventDetailPage from './pages/EventDetailPage';
 import { LoginPage, RegisterPage } from './pages/AuthPages';
 import MyRegistrationsPage from './pages/MyRegistrationsPage';
+import ProfilePage from './pages/ProfilePage';
+import PastEventsPage from './pages/PastEventsPage';
 import DashboardPage from './pages/DashboardPage';
 import EventFormPage from './pages/EventFormPage';
 import { ForgotPasswordPage, ResetPasswordPage } from './pages/PasswordPages';
@@ -28,12 +30,13 @@ function Navbar() {
       <div className="bar-in">
         <Link to="/" className="logo"><LogoMark />EventHub</Link>
         <nav>
-          <NavLink to="/">Evenimente</NavLink>
+          <NavLink to="/" end>Evenimente</NavLink>
+          <NavLink to="/evenimente-trecute">Arhivă</NavLink>
           {user?.role === 'PARTICIPANT' && <NavLink to="/inscrierile-mele">Înscrierile mele</NavLink>}
           {user?.role === 'ORGANIZER' && <NavLink to="/organizator">Evenimentele mele</NavLink>}
           {user ? (
             <>
-              <span className="who">{user.name}</span>
+              <NavLink to="/cont" className="who" title="Contul meu">{user.name}</NavLink>
               <button className="link" onClick={() => { logout(); notify('ok', 'Te-ai deconectat.'); nav('/'); }}>
                 Deconectare
               </button>
@@ -64,6 +67,8 @@ export default function App() {
           <Route path="/parola-uitata" element={<ForgotPasswordPage />} />
           <Route path="/resetare-parola" element={<ResetPasswordPage />} />
           <Route path="/confirmare-email" element={<VerifyEmailPage />} />
+          <Route path="/evenimente-trecute" element={<PastEventsPage />} />
+          <Route path="/cont" element={<RequireUser><ProfilePage /></RequireUser>} />
           <Route path="/inscrierile-mele" element={<RequireRole role="PARTICIPANT"><MyRegistrationsPage /></RequireRole>} />
           <Route path="/organizator" element={<RequireRole role="ORGANIZER"><DashboardPage /></RequireRole>} />
           <Route path="/organizator/nou" element={<RequireRole role="ORGANIZER"><EventFormPage /></RequireRole>} />

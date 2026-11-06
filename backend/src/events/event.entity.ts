@@ -57,7 +57,7 @@ export class Event {
   @OneToMany(() => WaitlistEntry, (w) => w.event)
   waitlist: WaitlistEntry[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
   /** Ultima modificare; din ea se calculează SEQUENCE în fișierul .ics (calendarele înlocuiesc intrarea veche). */

@@ -13,6 +13,12 @@ interface AuthCtx {
   logout: () => void;
   /** Recitește contul de la API (ex. după confirmarea emailului). */
   refresh: () => Promise<void>;
+  /** Folosește o sesiune nouă primită de la API (ex. după schimbarea parolei). */
+  adopt: (s: Session) => void;
+  /** Utilizatorul s-a schimbat pe server (ex. numele): actualizează-l local. */
+  setUserData: (u: User) => void;
+  /** Contul a fost închis pe server (logout pe toate dispozitivele, ștergere): uită sesiunea în toate tab-urile. */
+  endEverywhere: () => void;
 }
 
 const Ctx = createContext<AuthCtx>(null as unknown as AuthCtx);
@@ -62,6 +68,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       channel?.postMessage('logout' satisfies AuthMessage);
     },
+    adopt: (s) => { start(s); },
+    setUserData: (u) => setUser(u),
+    endEverywhere: () => {
+      setSession(null);
+      setUser(null);
+      channel?.postMessage('logout' satisfies AuthMessage);
+    },
     refresh: async () => {
       if (!hasSession()) return;
       try { setUser(await api<User>(ENDPOINTS.auth.me)); }
@@ -76,5 +89,13 @@ export function RequireRole({ role, children }: { role: Role; children: JSX.Elem
   if (!ready) return <Loading />;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== role) return <Navigate to="/" replace />;
+  return children;
+}
+
+/** Orice utilizator autentificat (ex. pagina de profil). */
+export function RequireUser({ children }: { children: JSX.Element }) {
+  const { user, ready } = useAuth();
+  if (!ready) return <Loading />;
+  if (!user) return <Navigate to="/login" replace />;
   return children;
 }

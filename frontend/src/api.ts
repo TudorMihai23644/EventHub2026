@@ -100,6 +100,27 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
   return data as T;
 }
 
+/** Descarcă un fișier de la o rută cu autentificare (ex. CSV-ul organizatorului) și îl salvează pe disc. */
+export async function apiDownload(path: string, fallbackName: string): Promise<void> {
+  const sentToken = accessToken;
+  let res = await send(path, {}, sentToken);
+  if (res.status === 401 && sentToken) {
+    const s = await refreshSession();
+    if (s) res = await send(path, {}, s.accessToken);
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new ApiError(data?.message ?? 'Fișierul nu a putut fi descărcat.', res.status);
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 async function send(path: string, opts: ApiOptions, token: string | null): Promise<Response> {
   // FormData (încărcare de fișiere): browserul pune singur Content-Type cu `boundary`; nu îl suprascriem.
   const isForm = typeof FormData !== 'undefined' && opts.body instanceof FormData;

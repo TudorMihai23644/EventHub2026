@@ -86,6 +86,12 @@ Toate rutele au prefixul `/api` (ex. `POST /api/auth/login`). URI-urile sunt def
 | POST | `/auth/password/reset` | public | `{ token, password }` → 200; 400 `TOKEN_INVALID` (link inexistent, expirat sau folosit); închide toate sesiunile contului |
 | POST | `/auth/email/verify` | public | `{ token }` → 200; 400 `TOKEN_INVALID` |
 | POST | `/auth/email/resend` | autentificat | 202 cu un link nou (cel vechi se anulează); 400 dacă adresa e deja confirmată; 5/oră per IP |
+| GET | `/events/past?search=&category=&page=&limit=` | public | arhiva: evenimentele care au început, cele mai recente întâi |
+| GET | `/events/:id/registrations.csv` | organizator proprietar | CSV (Excel): înscrișii, apoi lista de așteptare |
+| GET | `/events/:id/stats` | organizator proprietar | ocupare, lista de așteptare, înscrieri pe zile |
+| PATCH | `/account` | autentificat | `{ name }` |
+| POST | `/account/password` | autentificat + antet `X-EventHub-Client` | `{ currentPassword, newPassword }` → sesiune nouă pentru acest dispozitiv, celelalte închise |
+| DELETE | `/account` | autentificat + antet `X-EventHub-Client` | `{ password }` → 204; vezi „Contul meu” |
 | GET | `/events/categories` | public | `{ categories, formats }` cu etichetele în română |
 | GET | `/events?search=&sort=asc\|desc&available=true&category=&page=1&limit=20` | public | doar evenimente viitoare; răspuns paginat `{ items, total, page, limit, totalPages }`; `limit` maxim 50, `search` maxim 100 de caractere (`%` și `_` se caută literal); 400 pentru valori invalide |
 | GET | `/events/:id/registrations` | organizator proprietar | lista participanților înscriși |
@@ -144,6 +150,24 @@ sunt publice, dar adaptează răspunsul dacă cererea are token.
   - Stocare: implicit pe disc (volumul Docker `uploads`, servit la `/api/uploads/…` cu cache de un an); pe **Cloudinary** dacă
     `secrets/cloudinary_url.txt` (`CLOUDINARY_URL`, forma `cloudinary://<api_key>:<api_secret>@<cloud_name>`) nu e gol.
   - Înlocuirea, eliminarea sau ștergerea evenimentului șterg și fișierele vechi. Răspunsurile conțin doar `cover: { small, large }`.
+
+## Instrumente pentru organizator
+
+- **Export CSV** (buton în „Evenimentele mele”): înscrișii, apoi lista de așteptare în ordine, cu orele în fusul aplicației.
+  Separator `;` și BOM UTF-8, ca Excel cu setări românești să deschidă corect coloanele și diacriticele. O celulă care începe cu
+  `= + - @` primește un apostrof în față (altfel Excel ar executa-o ca formulă: „CSV injection”).
+- **Statistici** pe eveniment: înscriși, locuri libere, în așteptare, ocupare și înscrierile pe zile (bare simple). Înscrierile anulate nu mai
+  există în baza de date, deci seria arată înscrierile actuale după ziua în care s-au făcut.
+- **Arhivă publică** la `/evenimente-trecute`.
+
+## Contul meu (`/cont`)
+
+- Schimbarea numelui; schimbarea parolei (cu parola curentă): celelalte sesiuni se închid, dispozitivul curent rămâne autentificat;
+  „Deconectează-mă de pe toate dispozitivele”.
+- **Ștergerea contului** (cu parola): nu se bazează pe ștergerea în cascadă din baza de date pentru ce contează.
+  Un participant: înscrierile la evenimente viitoare se anulează prin fluxul normal (locul ajunge la primul de pe lista de așteptare,
+  organizatorul e anunțat), iese de pe listele de așteptare. Un organizator: evenimentele viitoare se șterg cu anunț către participanți,
+  cele trecute fără emailuri; imaginile de copertă se șterg. Emailurile încă netrimise către adresa ștearsă se scot din coadă.
 
 ## Lista de așteptare
 

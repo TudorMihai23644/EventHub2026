@@ -14,6 +14,7 @@ export const LIMITS = {
   verify: { ttl: 60 * MINUTE, limit: 20 }, // per IP: încercări de token-uri de confirmare
   resend: { ttl: 60 * MINUTE, limit: 5 }, // per IP: retrimiterea emailului de confirmare
   refresh: { ttl: MINUTE, limit: 30 }, // per IP: reînnoirea sesiunii (normal: o dată la 15 minute per tab)
+  account: { ttl: 60 * MINUTE, limit: 10 }, // per IP: schimbarea parolei / ștergerea contului (ghicirea parolei curente)
 } as const;
 
 // „un minut”, „5 minute”, „45 de minute” (în română, de la 20 în sus se pune „de”).
@@ -27,7 +28,7 @@ export const tooManyRequests = (secondsLeft: number) =>
 export const TOO_MANY_REQUESTS = tooManyRequests(60);
 
 // Limitele stricte se aplică doar rutelor marcate cu @ThrottleScope(...).
-export type ThrottleScopeName = 'login' | 'register' | 'forgot' | 'reset' | 'verify' | 'resend' | 'refresh';
+export type ThrottleScopeName = 'login' | 'register' | 'forgot' | 'reset' | 'verify' | 'resend' | 'refresh' | 'account';
 const SCOPE_KEY = 'eventhub:throttle-scope';
 export const ThrottleScope = (scope: ThrottleScopeName) => SetMetadata(SCOPE_KEY, scope);
 export const throttleScopeOf = (handler: object): ThrottleScopeName | undefined => Reflect.getMetadata(SCOPE_KEY, handler);
@@ -51,6 +52,7 @@ export const throttlerOptions: ThrottlerModuleOptions = {
     { name: 'verify', ...LIMITS.verify, skipIf: onlyFor('verify') },
     { name: 'resend', ...LIMITS.resend, skipIf: onlyFor('resend') },
     { name: 'refresh', ...LIMITS.refresh, skipIf: onlyFor('refresh') },
+    { name: 'account', ...LIMITS.account, skipIf: onlyFor('account') },
   ],
 };
 

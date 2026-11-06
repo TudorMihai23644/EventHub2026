@@ -11,6 +11,8 @@ import { paginated } from '../common/paginated';
 import { Notifications, info } from '../mail/notifications.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
 import { MAX_DURATION_DAYS } from './categories';
+import { WaitlistEntry } from '../waitlist/waitlist-entry.entity';
+import { csvDate, toCsv } from '../common/csv';
 
 @Injectable()
 export class EventsService {
@@ -60,6 +62,19 @@ export class EventsService {
     // `id` ca al doilea criteriu: evenimentele cu aceeași oră nu sar între pagini.
     const dir = q.sort === 'desc' ? 'DESC' : 'ASC';
     qb.orderBy('e.startsAt', dir).addOrderBy('e.id', dir).skip((page - 1) * limit).take(limit);
+    const [events, total] = await qb.getManyAndCount();
+    return paginated(await this.views(events, viewer), total, page, limit);
+  }
+
+  /** Arhiva publică: evenimentele care au început, cele mai recente întâi; aceleași filtre de căutare și categorie. */
+  async findPast(q: ListEventsQuery, viewer?: AuthUser) {
+    const page = q.page ?? 1;
+    const limit = q.limit ?? PAGE_SIZE_DEFAULT;
+    const qb = this.base().where('e.startsAt <= now()');
+    const search = q.search?.trim();
+    if (search) qb.andWhere('(e.title ILIKE :s OR e.location ILIKE :s)', { s: `%${escapeLike(search)}%` });
+    if (q.category) qb.andWhere('e.category = :category', { category: q.category });
+    qb.orderBy('e.startsAt', 'DESC').addOrderBy('e.id', 'DESC').skip((page - 1) * limit).take(limit);
     const [events, total] = await qb.getManyAndCount();
     return paginated(await this.views(events, viewer), total, page, limit);
   }
@@ -208,16 +223,52 @@ export class EventsService {
     }));
   }
 
+  /** CSV pentru organizator: înscrișii, apoi lista de așteptare în ordine. Orele în fusul orar al aplicației. */
+  async attendeesCsv(userId: string, id: string, timeZone: string) {
+    const event = await this.owned(userId, id);
+    const regs = await this.regs.find({ where: { eventId: id }, relations: { user: true }, order: { createdAt: 'ASC', id: 'ASC' } });
+    const waiting = await this.dataSource.getRepository(WaitlistEntry).find({ where: { eventId: id }, relations: { user: true }, order: { createdAt: 'ASC', id: 'ASC' } });
+    const rows: unknown[][] = [['Nr.', 'Nume', 'Email', 'Status', 'Data']];
+    regs.forEach((r, i) => rows.push([i + 1, r.user.name, r.user.email, 'Înscris', csvDate(r.createdAt, timeZone)]));
+    waiting.forEach((w, i) => rows.push([regs.length + i + 1, w.user.name, w.user.email, `Pe lista de așteptare (locul ${i + 1})`, csvDate(w.createdAt, timeZone)]));
+    return { event, csv: toCsv(rows) };
+  }
+
+  /**
+   * Statistici pentru organizator: ocupare, lista de așteptare și înscrierile pe zile (în fusul orar al aplicației).
+   * Înscrierile anulate nu mai există în baza de date, deci seria arată înscrierile actuale după ziua în care s-au făcut.
+   */
+  async stats(userId: string, id: string, timeZone: string) {
+    const event = await this.owned(userId, id);
+    const registered = await this.regs.count({ where: { eventId: id } });
+    const waiting = await this.dataSource.getRepository(WaitlistEntry).count({ where: { eventId: id } });
+    const byDay: { day: string; count: number }[] = await this.dataSource.query(
+      `SELECT to_char("createdAt" AT TIME ZONE $2, 'YYYY-MM-DD') AS day, count(*)::int AS count
+         FROM registrations WHERE "eventId" = $1 GROUP BY 1 ORDER BY 1`,
+      [id, timeZone],
+    );
+    let total = 0;
+    return {
+      eventId: id,
+      capacity: event.capacity,
+      registered,
+      waiting,
+      availableSeats: Math.max(0, event.capacity - registered),
+      occupancyPercent: event.capacity ? Math.min(100, Math.round((registered / event.capacity) * 100)) : 0,
+      byDay: byDay.map((d) => ({ date: d.day, count: d.count, cumulative: (total += d.count) })),
+    };
+  }
+
   // Participanții sunt anunțați înainte de ștergere: după ea, înscrierile (și lista lor) nu mai există.
   // Lock ca la înscriere: nimeni nu se poate înscrie între citirea listei și ștergere.
   /** Întoarce coperta evenimentului șters: fișierele ei se șterg după ce ștergerea din baza de date a reușit. */
-  async remove(userId: string, id: string) {
+  async remove(userId: string, id: string, opts: { notify?: boolean } = {}) {
     return this.dataSource.transaction(async (m) => {
       const event = this.assertOwner(
         await m.findOne(Event, { where: { id }, lock: { mode: 'pessimistic_write' } }),
         userId,
       );
-      await this.notifications.eventCancelled(m, event);
+      if (opts.notify !== false) await this.notifications.eventCancelled(m, event);
       const cover = event.coverImage ?? null;
       await m.remove(event);
       return cover;

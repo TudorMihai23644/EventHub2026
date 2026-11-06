@@ -39,6 +39,13 @@ export class EventsController {
   }
 
   // rutele fixe ('categories', 'mine', 'mine/summary') se declară înainte de ':id'
+  // arhiva publică a evenimentelor care au avut loc (înainte de ':id')
+  @Get(ROUTES.events.past)
+  @UseGuards(OptionalJwtGuard)
+  past(@CurrentUser() viewer: AuthUser | undefined, @Query() query: ListEventsQuery) {
+    return this.events.findPast(query, viewer);
+  }
+
   @Get(ROUTES.events.mine)
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ORGANIZER')
@@ -59,6 +66,25 @@ export class EventsController {
   @Roles('ORGANIZER')
   attendees(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.events.attendees(user.id, id);
+  }
+
+  // export CSV (Excel): înscrișii și lista de așteptare, doar pentru organizatorul proprietar
+  @Get(ROUTES.events.attendeesCsv)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ORGANIZER')
+  async attendeesCsv(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Res({ passthrough: true }) res: Response) {
+    const { event, csv } = await this.events.attendeesCsv(user.id, id, this.mail.timeZone);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${icsFilename(event.title).replace(/\.ics$/, '')}-participanti.csv"`);
+    res.setHeader('Cache-Control', 'no-store'); // date personale
+    return csv;
+  }
+
+  @Get(ROUTES.events.stats)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ORGANIZER')
+  stats(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.events.stats(user.id, id, this.mail.timeZone);
   }
 
   // fișier .ics pentru Apple Calendar, Outlook, telefoane (public)

@@ -46,7 +46,7 @@ Effort: XS < 1h · S ≈ half day · M ≈ 1–3 days · L > 3 days
 | [9](#idea-9) | [x] | Waitlist with automatic promotion when someone cancels | Feature | M | 1, 6 |
 | [10](#idea-10) | [x] | 24h reminders (`@nestjs/schedule`) + `.ics` download + "Add to Google Calendar" link | Feature | S–M | 6 |
 | [11](#idea-11) | [x] | Event fields: `endsAt`, category/tags, cover image (Cloudinary), online/physical + link | Feature + API | M | |
-| [12](#idea-12) | [ ] | Organizer tools: CSV export of attendees, analytics (registrations over time, no-show rate) | Feature | S–M | |
+| [12](#idea-12) | [x] | Organizer tools: CSV export of attendees, analytics (registrations over time, no-show rate) | Feature | S–M | |
 | [13](#idea-13) | [ ] | CI (lint + tests), ESLint/Prettier, frontend tests, frontend in `docker-compose` | Tooling | M | |
 | [14](#idea-14) | [ ] | Location autocomplete + map (Mapbox / Google Places, or free Nominatim + Leaflet) | Feature + API | M | |
 | [15](#idea-15) | [ ] | QR ticket per registration + organizer check-in scanner | Feature | M–L | |
@@ -1192,9 +1192,39 @@ Sources: [Cloudinary pricing](https://cloudinary.com/pricing), [Cloudinary billi
 <a id="idea-12"></a>
 ## 12. Organizer tools: CSV export + analytics
 
-**Status:** idea · plan not written yet
+**Status:** ✅ done 2026-11-06 · 248/248 unit + 99/99 integration tests, 16/16 end-to-end checks · **Type:** Feature · **Effort:** M
 
-CSV export of attendees; analytics such as registrations over time and no-show rate. Also: past events archive, user profile (edit name/password, delete account). Open question: should organizers be able to edit past events?
+(Worked on autonomously at the user's request: plan, decisions and results recorded together.)
+
+### What was built
+
+| Part | Details |
+|---|---|
+| **CSV export** | `GET /events/:id/registrations.csv` (owner): registered people, then the waitlist in order; `;` separator + UTF-8 BOM (Excel with Romanian settings); cells starting with `= + - @` prefixed with `'` (CSV formula injection); `Cache-Control: no-store` (personal data); times in `APP_TIMEZONE`. Dashboard button "Export CSV" downloads it with the session token (`apiDownload`). |
+| **Statistics** | `GET /events/:id/stats` (owner): registered, free seats, waiting, occupancy, registrations per day in `APP_TIMEZONE` with a running total. Dashboard toggle "Statistici" with a small bar chart. |
+| **Archive** | `GET /events/past` (public, paginated, search/category), page `/evenimente-trecute`, "Arhivă" in the navbar. |
+| **Profile `/cont`** | `PATCH /account` (name); `POST /account/password` (current password required; other sessions revoked + `tokenVersion`+1, this device gets a new session and stays logged in; "password changed" email); "log out everywhere" button (route from [#8](#idea-8)); `DELETE /account` (password + "I understand" checkbox). The user's name in the navbar links to it. |
+| **Safe account deletion** | Doesn't rely on `ON DELETE CASCADE` for what matters. Participant: every upcoming registration cancelled through the normal locked flow (waitlist promotion, organizer notified, no email to the person deleting), removed from waitlists. Organizer: upcoming events deleted with participants notified, past ones silently, cover files deleted. Pending emails to the deleted address dropped. |
+| **Bug fixed** | `createdAt` columns were `TIMESTAMP` without time zone and read as the API machine's *local* time by `pg` (2 h off on a Bucharest machine): hand-written migration to `timestamptz` keeping the data (TypeORM would have generated DROP + ADD). |
+
+### Decisions taken
+
+1. **No-show rate moved to [#15](#idea-15)**: it needs check-in data, which [#15](#idea-15) introduces.
+2. **Editing past events stays allowed** (open question): organizers may need to fix a typo or the description afterwards; registration rules don't depend on it.
+3. **Cancellations aren't recorded**, so the daily series shows current registrations by sign-up day (documented in the UI and README). Keeping a cancellation history is a possible follow-up.
+4. **Change email** stays in the Inbox (needs re-verification of the new address).
+
+### Checks
+
+| Check | Result |
+|---|---|
+| Unit: CSV BOM / separator / CRLF, quoting of `;` `,` `"` and new lines, formula prefixes, empty values, Bucharest time | ✅ 8 new |
+| Integration: wrong / same password → 400; password change closes other sessions (access + refresh) and keeps this device; account deletion: wrong password → nothing deleted; **participant's seat goes to the waitlist** (not left empty), organizer notified, no email to the person; waitlists and past registrations removed; organizer: upcoming events notified + deleted, past ones silent, **cover files deleted from disk**; pending emails dropped; CSV content incl. formula injection and Bucharest time, other organizer → 403; stats per day across midnight Bucharest vs UTC; archive order | ✅ 10 new |
+| Does the deletion test catch a cascade-only delete? | ✅ without the cancellation loop, the freed seat stays empty and the test fails |
+| Migration: a row written as `2026-01-15 10:00` (UTC) before → `2026-01-15 10:00+00` after; `migration:check` clean | ✅ |
+| End-to-end via HTTP: CSV headers, BOM, content; participant → 403; stats; archive; rename; CSRF header required; wrong current password; new access token + cookie, old ones 401; delete with the old password → 400, with the new → 204; the deleted user's seat went to the next person; login fails afterwards | ✅ 16/16 |
+
+**Found along the way:** the encoding guard from [#6](#idea-6) flagged one of my own comments (it quoted a double-encoded example); reworded. In the end-to-end test, `fetch`'s `res.text()` silently strips a UTF-8 BOM, so the test reads raw bytes instead.
 
 [↑ Back to table of contents](#table-of-contents)
 
@@ -1304,7 +1334,7 @@ Make the unused "Pure Black & Red Neon 4K" design the app's real look, instead o
 - 2026-11-05 – Unused-code check (`knip`) in CI, as part of [#13](#idea-13) – would have caught the dead files from [#3](#idea-3) automatically.
 - 2026-11-05 – Add `.gitattributes` (`* text=auto eol=lf`) – this machine has `core.autocrlf=true`, so a fresh checkout turns files into CRLF; `setup-secrets.sh` then fails on Mac/Linux (`sh\r: not found`).
 - 2026-11-05 – `tsconfig.build.json` that excludes `*.spec.ts` – `nest build` currently compiles the test files into `dist/` and they end up in the Docker image.
-- 2026-11-05 – `createdAt` columns are `TIMESTAMP` without time zone (only `startsAt` has one) – consider a migration to `timestamptz` for consistency.
+- 2026-11-05 – ✅ **Done in [#12](#idea-12)** – `createdAt` columns were `TIMESTAMP` without time zone. It turned out to be a real bug, not only consistency: the `pg` driver reads such values as the *local* time of the API's machine, so on a computer set to Bucharest, registration times were 2 hours off. Hand-written migration to `timestamptz` (`USING … AT TIME ZONE 'UTC'`, existing values kept).
 - 2026-11-05 – ✅ **Fixed 2026-11-05 – Bug:** empty "Capacitate maximă" in the event form (sent as `null`) or a non-number got the message "Capacitatea maximă este 100.000 de locuri." – same cause as the `?page=abc` bug fixed in [#5](#idea-5): the first failing rule was shown, in decorator order.
   - **Worse case found while fixing:** editing an event (`PATCH`) let `capacity: null` and `title: null` through validation (`PartialType` adds `@IsOptional()`, which skips `null`). With no registrations, `null` reached the database → **500**; with registrations, the message was "Capacitatea nu poate fi sub numărul de înscriși".
   - **Fix:** new `common/validation.ts` (shared by `main.ts` and the tests): `firstMessage()` reports "missing / wrong type" rules first (`isDefined`, `isString`, `isInt`, …), whatever the decorator order, which also fixes a missing `title` / `name` showing "maximum N characters". `capacity` got `@IsDefined` ("Capacitatea este obligatorie."). `UpdateEventDto` uses `PartialType(…, { skipNullProperties: false })`: a missing field stays optional, `null` is validated.
@@ -1312,7 +1342,7 @@ Make the unused "Pure Black & Red Neon 4K" design the app's real look, instead o
 - 2026-11-05 – Intermittent Jest warning "A worker process has failed to exit gracefully" (seen in 2 of ~10 parallel `npm test` runs on Windows). All tests pass; `--detectOpenHandles` in a single process finds nothing. Look again when setting up CI in [#13](#idea-13) (e.g. `--runInBand` or `workerIdleMemoryLimit`).
 - 2026-11-05 – Email follow-ups from [#6](#idea-6): (a) cleanup job for old `SENT` rows in `email_outbox` (they stay forever now); (b) a way for organizers/admins to see `FAILED` emails; (c) a daily digest option for organizers of popular events instead of one email per registration; (d) verify a real domain + SPF/DKIM before emailing real participants.
 - 2026-11-05 – `backend/package.json`: add `"engines": { "node": ">=22.12" }` (required by `resend`), and use `npm ci` instead of `npm install` in the Dockerfile for reproducible builds.
-- 2026-11-05 – Account follow-ups from [#7](#idea-7): (a) cleanup of used/expired rows in `auth_tokens`; (b) "change password" while logged in (needs the current password) and "change email" (needs re-verification); (c) a banner update in other open tabs after verifying (today only the tab that opened the link refreshes); (d) register's unique-email race: two simultaneous sign-ups with the same address → the second gets a 500 from the database constraint instead of 409.
+- 2026-11-05 – Account follow-ups from [#7](#idea-7): (a) cleanup of used/expired rows in `auth_tokens`; (b) ✅ "change password" while logged in done in [#12](#idea-12); "change email" (needs re-verification) still open; (c) a banner update in other open tabs after verifying (today only the tab that opened the link refreshes); (d) register's unique-email race: two simultaneous sign-ups with the same address → the second gets a 500 from the database constraint instead of 409.
 - 2026-11-05 – **Content-Security-Policy for the frontend.** helmet's CSP from [#2](#idea-2) only covers API responses; the React app's `index.html` (served by Vite / a static host) has none. A CSP (`script-src 'self'`, fonts from Google, `connect-src` = the API) is the main defense against XSS, the attack [#8](#idea-8) limits the damage of. Set it in the static host's headers, or a `<meta http-equiv>` as a fallback.
 - 2026-11-05 – Tests under load, for [#13](#idea-13): twice now (ideas 7 and 9) one unit test failed only because the machine was heavily loaded (suites ran 5–10× slower; VS Code using a lot of CPU) and passed on rerun. In CI, run Jest with a fixed number of workers (`--maxWorkers=2`) so timings stay predictable.
 - 2026-11-05 – Update outdated dependencies that `npm install` warns about (`glob`, `inflight`, `uuid`, pulled in by other packages), as part of [#13](#idea-13).

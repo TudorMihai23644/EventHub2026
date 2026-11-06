@@ -40,7 +40,7 @@ export class RegistrationsService {
 
   // Același lock ca la înscriere: anularea și înscrierea la același eveniment
   // se execută pe rând. După începerea evenimentului înscrierea nu se mai poate anula.
-  cancel(userId: string, eventId: string): Promise<void> {
+  cancel(userId: string, eventId: string, opts: { notifyParticipant?: boolean } = {}): Promise<void> {
     return this.dataSource.transaction(async (m) => {
       const event = await m.findOne(Event, { where: { id: eventId }, lock: { mode: 'pessimistic_write' } });
       if (!event) throw new NotFoundException('Evenimentul nu a fost găsit.');
@@ -50,7 +50,7 @@ export class RegistrationsService {
       const res = await m.delete(Registration, { userId, eventId });
       if (!res.affected) throw new NotFoundException('Nu ești înscris la acest eveniment.');
       const taken = await m.count(Registration, { where: { eventId } });
-      await this.notifications.registrationCancelled(m, { userId, event, taken });
+      await this.notifications.registrationCancelled(m, { userId, event, taken, notifyParticipant: opts.notifyParticipant });
       // locul eliberat merge la primul de pe lista de așteptare, în aceeași tranzacție (cu lock-ul pe eveniment)
       await this.waitlist.promote(m, event);
     });

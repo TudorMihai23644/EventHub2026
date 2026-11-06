@@ -11,5 +11,6 @@ import { WaitlistModule } from '../waitlist/waitlist.module';
   imports: [TypeOrmModule.forFeature([Registration, Event]), MailModule, WaitlistModule],
   controllers: [RegistrationsController],
   providers: [RegistrationsService],
+  exports: [RegistrationsService], // AccountModule: ștergerea contului anulează înscrierile (cu promovare)
 })
 export class RegistrationsModule {}

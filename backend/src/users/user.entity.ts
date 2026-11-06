@@ -27,7 +27,7 @@ export class User {
   @Column({ type: 'int', default: 0 })
   tokenVersion: number;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 }
 

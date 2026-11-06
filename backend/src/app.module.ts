@@ -10,6 +10,7 @@ import { UsersModule } from './users/users.module';
 import { EventsModule } from './events/events.module';
 import { RegistrationsModule } from './registrations/registrations.module';
 import { RemindersModule } from './reminders/reminders.module';
+import { AccountModule } from './account/account.module';
 import { dataSourceOptions } from './database/data-source';
 
 @Module({
@@ -26,6 +27,7 @@ import { dataSourceOptions } from './database/data-source';
     EventsModule,
     RegistrationsModule,
     RemindersModule, // memento cu o zi înainte de eveniment
+    AccountModule, // profil: nume, parolă, ștergerea contului
   ],
 })
 export class AppModule {}

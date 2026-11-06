@@ -12,5 +12,6 @@ import { ImagesModule } from '../images/images.module';
   imports: [TypeOrmModule.forFeature([Event, Registration]), MailModule, WaitlistModule, ImagesModule],
   controllers: [EventsController],
   providers: [EventsService],
+  exports: [EventsService], // AccountModule: ștergerea contului unui organizator
 })
 export class EventsModule {}

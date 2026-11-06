@@ -20,7 +20,11 @@ export const ROUTES = {
     waitlist: ':id/waitlist',
     calendar: ':id/calendar.ics',
     cover: ':id/cover',
+    past: 'past',
+    attendeesCsv: ':id/registrations.csv',
+    stats: ':id/stats',
   },
   registrations: { base: 'registrations', mine: 'me' },
   waitlist: { base: 'waitlist', mine: 'me' },
+  account: { base: 'account', password: 'password' },
 } as const;

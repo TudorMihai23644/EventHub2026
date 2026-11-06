@@ -62,6 +62,29 @@ export class ResetPasswordDto {
   password: string;
 }
 
+export class UpdateProfileDto {
+  @IsString({ message: 'Numele este obligatoriu.' })
+  @MinLength(2, { message: 'Numele trebuie să aibă cel puțin 2 caractere.' })
+  @MaxLength(100, { message: 'Numele poate avea maximum 100 de caractere.' })
+  @Trim()
+  name: string;
+}
+
+export class ChangePasswordDto {
+  @IsString({ message: 'Parola curentă este obligatorie.' })
+  @MaxLength(72, { message: 'Parola poate avea maximum 72 de caractere.' })
+  currentPassword: string;
+
+  @PasswordRules()
+  newPassword: string;
+}
+
+export class DeleteAccountDto {
+  @IsString({ message: 'Confirmă cu parola contului.' })
+  @MaxLength(72, { message: 'Parola poate avea maximum 72 de caractere.' })
+  password: string;
+}
+
 export class VerifyEmailDto {
   @TokenRules()
   token: string;

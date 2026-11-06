@@ -23,7 +23,7 @@ export class Registration {
   @JoinColumn({ name: 'eventId' })
   event: Event;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
   /** Când s-a trimis memento-ul de cu o zi înainte. Se golește dacă evenimentul își schimbă data. */

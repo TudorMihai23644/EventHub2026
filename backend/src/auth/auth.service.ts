@@ -71,6 +71,52 @@ export class AuthService {
     await this.sessions.revokeByRaw(raw);
   }
 
+  /** Schimbă numele afișat (profil). */
+  async updateName(userId: string, name: string) {
+    await this.dataSource.getRepository(User).update({ id: userId }, { name: name.trim() });
+    return this.me(userId);
+  }
+
+  /**
+   * Parolă nouă, din profil (cu parola curentă). Celelalte sesiuni se închid (refresh token-uri revocate, `tokenVersion`+1),
+   * dar dispozitivul de pe care s-a făcut schimbarea primește o sesiune nouă și rămâne autentificat.
+   */
+  async changePassword(userId: string, current: string, next: string, userAgent?: string) {
+    const user = await this.withPassword(userId);
+    if (!(await bcrypt.compare(current, user.passwordHash))) {
+      const message = 'Parola curentă nu este corectă.';
+      throw new BadRequestException({ statusCode: 400, error: 'Bad Request', message, fields: { currentPassword: message } });
+    }
+    if (current === next) {
+      const message = 'Parola nouă trebuie să fie diferită de cea curentă.';
+      throw new BadRequestException({ statusCode: 400, error: 'Bad Request', message, fields: { newPassword: message } });
+    }
+    const passwordHash = await bcrypt.hash(next, 10);
+    await this.dataSource.transaction(async (m) => {
+      await m.update(User, { id: userId }, { passwordHash, tokenVersion: () => '"tokenVersion" + 1' });
+      await this.sessions.revokeAllForUser(m, userId);
+      await this.tokens.revokeAll(m, userId, 'PASSWORD_RESET');
+      await this.notifications.passwordChanged(m, user);
+    });
+    return this.session(await this.dataSource.getRepository(User).findOneByOrFail({ id: userId }), userAgent);
+  }
+
+  /** Confirmă parola contului (ex. înainte de ștergerea contului). */
+  async assertPassword(userId: string, password: string) {
+    const user = await this.withPassword(userId);
+    if (!(await bcrypt.compare(password, user.passwordHash))) {
+      const message = 'Parola nu este corectă.';
+      throw new BadRequestException({ statusCode: 400, error: 'Bad Request', message, fields: { password: message } });
+    }
+    return user;
+  }
+
+  private async withPassword(userId: string) {
+    const user = await this.dataSource.getRepository(User).createQueryBuilder('u').addSelect('u.passwordHash').where('u.id = :id', { id: userId }).getOne();
+    if (!user) throw new NotFoundException('Contul nu mai există.');
+    return user;
+  }
+
   /** Logout pe toate dispozitivele: toate refresh token-urile + toate access token-urile (`tokenVersion`). */
   async logoutAll(userId: string) {
     await this.dataSource.transaction(async (m) => {

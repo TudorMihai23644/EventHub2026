@@ -102,6 +102,17 @@ export interface Attendee {
   user: { id: string; name: string; email: string };
 }
 
+/** GET /events/:id/stats */
+export interface EventStats {
+  eventId: string;
+  capacity: number;
+  registered: number;
+  waiting: number;
+  availableSeats: number;
+  occupancyPercent: number;
+  byDay: { date: string; count: number; cumulative: number }[];
+}
+
 export interface OrganizerSummary {
   eventsCount: number;
   upcomingCount: number;

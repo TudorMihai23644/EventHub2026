@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../api';
+import { api, apiDownload } from '../api';
 import { ENDPOINTS } from '../endpoints';
-import { Attendee, EventItem, OrganizerSummary, WaitlistPerson } from '../types';
+import { Attendee, EventItem, EventStats, OrganizerSummary, WaitlistPerson } from '../types';
 import { DateTile, Loading, errMsg, fmtWhen, useToast } from '../ui';
 
 export default function DashboardPage() {
@@ -11,6 +11,7 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState<OrganizerSummary | null>(null);
   const [attendees, setAttendees] = useState<Record<string, Attendee[]>>({});
   const [waiting, setWaiting] = useState<Record<string, WaitlistPerson[]>>({});
+  const [stats, setStats] = useState<Record<string, EventStats>>({});
 
   const load = useCallback(async () => {
     try {
@@ -43,6 +44,22 @@ export default function DashboardPage() {
       const list = await api<Attendee[]>(ENDPOINTS.events.registrations(e.id));
       setAttendees((a) => ({ ...a, [e.id]: list }));
     } catch (err) { notify('err', errMsg(err)); }
+  }
+
+  async function toggleStats(e: EventItem) {
+    if (stats[e.id]) {
+      setStats((s) => { const next = { ...s }; delete next[e.id]; return next; });
+      return;
+    }
+    try {
+      const data = await api<EventStats>(ENDPOINTS.events.stats(e.id));
+      setStats((s) => ({ ...s, [e.id]: data }));
+    } catch (err) { notify('err', errMsg(err)); }
+  }
+
+  async function exportCsv(e: EventItem) {
+    try { await apiDownload(ENDPOINTS.events.attendeesCsv(e.id), 'participanti.csv'); }
+    catch (err) { notify('err', errMsg(err)); }
   }
 
   async function toggleWaiting(e: EventItem) {
@@ -96,6 +113,7 @@ export default function DashboardPage() {
                       {attendees[e.id].map((a) => <li key={a.id}>{a.user.name} <span className="muted">({a.user.email})</span></li>)}
                     </ul>
               )}
+              {stats[e.id] && <StatsPanel s={stats[e.id]} />}
               {waiting[e.id] && (
                 <>
                   <p className="small"><strong>Lista de așteptare</strong> (în ordine; primul primește următorul loc liber)</p>
@@ -107,6 +125,8 @@ export default function DashboardPage() {
             </div>
             <div className="actions">
               <button className="btn ghost" onClick={() => toggleAttendees(e)}>{attendees[e.id] ? 'Ascunde înscrișii' : 'Vezi înscrișii'}</button>
+              <button className="btn ghost" onClick={() => toggleStats(e)}>{stats[e.id] ? 'Ascunde statisticile' : 'Statistici'}</button>
+              <button className="btn ghost" onClick={() => exportCsv(e)} title="Înscrișii și lista de așteptare, pentru Excel">Export CSV</button>
               {e.waitlistCount > 0 && (
                 <button className="btn ghost" onClick={() => toggleWaiting(e)}>{waiting[e.id] ? 'Ascunde lista de așteptare' : 'Vezi lista de așteptare'}</button>
               )}
@@ -117,5 +137,34 @@ export default function DashboardPage() {
         ))}
       </ul>
     </>
+  );
+}
+
+/** Înscrierile pe zile: bare simple, proporționale cu ziua cea mai aglomerată. */
+function StatsPanel({ s }: { s: EventStats }) {
+  const max = Math.max(1, ...s.byDay.map((d) => d.count));
+  const label = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' });
+  return (
+    <div className="stats" aria-label="Statistici înscrieri">
+      <div className="stat-row">
+        <div><strong>{s.registered}</strong><span>înscriși</span></div>
+        <div><strong>{s.availableSeats}</strong><span>locuri libere</span></div>
+        <div><strong>{s.waiting}</strong><span>în așteptare</span></div>
+        <div><strong>{s.occupancyPercent}%</strong><span>ocupare</span></div>
+      </div>
+      {s.byDay.length === 0
+        ? <p className="muted small">Încă nu există înscrieri.</p>
+        : (
+          <ol className="bars">
+            {s.byDay.map((d) => (
+              <li key={d.date} title={`${label(d.date)}: ${d.count} înscrieri (total ${d.cumulative})`}>
+                <span className="bar-fill" style={{ height: `${Math.round((d.count / max) * 100)}%` }} />
+                <span className="bar-label">{label(d.date)}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      <p className="muted small">Înscrierile actuale, după ziua în care s-au făcut (cele anulate nu apar).</p>
+    </div>
   );
 }

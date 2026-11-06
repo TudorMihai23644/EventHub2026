@@ -24,7 +24,11 @@ export const ENDPOINTS = {
     registrations: (id: string) => `/events/${id}/registrations`, // POST/DELETE participant, GET organizator
     waitlist: (id: string) => `/events/${id}/waitlist`, // POST/DELETE participant, GET organizator
     cover: (id: string) => `/events/${id}/cover`, // POST (multipart, câmpul „file”) / DELETE, organizatorul
+    past: (query = '') => `/events/past${query ? `?${query}` : ''}`,
+    attendeesCsv: (id: string) => `/events/${id}/registrations.csv`,
+    stats: (id: string) => `/events/${id}/stats`,
   },
   registrations: { mine: '/registrations/me' },
   waitlist: { mine: '/waitlist/me' },
+  account: { profile: '/account', password: '/account/password' }, // PATCH profil, POST parolă, DELETE cont
 } as const;
